@@ -89,6 +89,7 @@ Backends panel behavior:
 ## 6) Update Manifest
 
 Use `Settings -> Update manifest URL` for app update checks.
+You can also use the standalone updater executable (`UniversalFileUtilitySuite_Updater.exe`).
 
 Example:
 
@@ -119,7 +120,13 @@ build_suite_release.bat
 
 Outputs:
 - `dist\UniversalFileUtilitySuite.exe`
+- `dist\UniversalFileUtilitySuite_Updater.exe`
 - `installer_output\UniversalFileUtilitySuite_Setup.exe`
+- `release_bins\UniversalFileUtilitySuite.exe`
+- `release_bins\UniversalFileUtilitySuite_Updater.exe`
+- `release_bins\UniversalFileUtilitySuite_Setup.exe`
+
+`release_bins` is the stable folder that always keeps the latest runnable app, updater, and installer binaries together.
 
 ### Basic dependencies
 

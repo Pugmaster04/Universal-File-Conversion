@@ -43,7 +43,8 @@ function Copy-SafeTree {
         "build",
         "dist",
         "installer_output",
-        "suite_output"
+        "suite_output",
+        "release_bins"
     )
     Get-ChildItem -Path $SourceRoot -Force | ForEach-Object {
         if ($excludedNames -contains $_.Name) {
@@ -72,9 +73,19 @@ if ($IncludeBuildOutputs.IsPresent) {
         Copy-Item -Path $distExe -Destination (Join-Path $artifactRoot "UniversalFileUtilitySuite.exe") -Force
     }
 
+    $updaterExe = Join-Path $RepoRoot "dist\UniversalFileUtilitySuite_Updater.exe"
+    if (Test-Path $updaterExe) {
+        Copy-Item -Path $updaterExe -Destination (Join-Path $artifactRoot "UniversalFileUtilitySuite_Updater.exe") -Force
+    }
+
     $setupExe = Join-Path $RepoRoot "installer_output\UniversalFileUtilitySuite_Setup.exe"
     if (Test-Path $setupExe) {
         Copy-Item -Path $setupExe -Destination (Join-Path $artifactRoot "UniversalFileUtilitySuite_Setup.exe") -Force
+    }
+
+    $stagedDir = Join-Path $RepoRoot "release_bins"
+    if (Test-Path $stagedDir) {
+        Copy-Item -Path $stagedDir -Destination (Join-Path $artifactRoot "release_bins") -Recurse -Force
     }
 }
 

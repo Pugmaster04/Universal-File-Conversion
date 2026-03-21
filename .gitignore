@@ -10,6 +10,7 @@ build/
 dist/
 installer_output/
 suite_output/
+release_bins/
 archive/history/
 archive/releases/
 

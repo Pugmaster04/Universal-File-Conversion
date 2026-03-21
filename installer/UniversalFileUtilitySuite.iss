@@ -2,6 +2,7 @@
 #define MyAppVersion "0.5"
 #define MyAppPublisher "Universal File Utility Suite"
 #define MyAppExeName "UniversalFileUtilitySuite.exe"
+#define MyUpdaterExeName "UniversalFileUtilitySuite_Updater.exe"
 
 [Setup]
 AppId={{33D7E9DA-6CF5-44F7-84E8-06DF57C05495}
@@ -27,12 +28,14 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 
 [Files]
 Source: "..\dist\UniversalFileUtilitySuite.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\UniversalFileUtilitySuite_Updater.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\PROJECT_PLAN.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\update_manifest.example.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Universal File Utility Suite"; Filename: "{app}\{#MyAppExeName}"
+Name: "{autoprograms}\Universal File Utility Suite Updater"; Filename: "{app}\{#MyUpdaterExeName}"
 Name: "{autodesktop}\Universal File Utility Suite"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
