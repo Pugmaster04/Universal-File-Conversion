@@ -59,6 +59,11 @@ Settings page includes:
 - FFmpeg thread count (`0` = auto)
 - Activity log line retention
 - Update and backend prompt settings
+- Security controls:
+  - confirm before opening external links
+  - require HTTPS for backend/update links
+  - require HTTPS for update manifest URLs
+  - allow/block local manifest files
 
 ## 4) Quick Start
 
@@ -90,6 +95,10 @@ Backends panel behavior:
 
 Use `Settings -> Update manifest URL` for app update checks.
 You can also use the standalone updater executable (`UniversalFileUtilitySuite_Updater.exe`).
+Updater security options include:
+- HTTPS-only manifest/download URLs
+- optional confirmation before opening download URLs
+- SHA256 verification policy for downloaded update files
 
 Example:
 
@@ -97,6 +106,7 @@ Example:
 {
   "latest_version": "0.5",
   "download_url": "https://example.com/UniversalFileUtilitySuite.exe",
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "notes": "Release notes here"
 }
 ```

@@ -1,5 +1,6 @@
 {
   "latest_version": "0.5",
   "download_url": "https://example.com/UniversalFileUtilitySuite.exe",
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "notes": "Update-check fallback manifest template."
 }

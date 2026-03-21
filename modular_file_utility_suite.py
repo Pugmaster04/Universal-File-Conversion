@@ -14,6 +14,7 @@ import tarfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
 import zipfile
@@ -1011,6 +1012,10 @@ class SuiteApp:
             "startup_animation_seconds": 4.6,
             "ffmpeg_thread_count": 0,
             "log_max_lines": 4000,
+            "security_confirm_external_links": True,
+            "security_require_https_for_web_links": True,
+            "security_require_https_for_update_manifest": True,
+            "security_allow_local_update_manifests": True,
             "update_manifest_url": DEFAULT_UPDATE_MANIFEST_URL,
             "last_update_check": "",
         }
@@ -1056,6 +1061,8 @@ class SuiteApp:
         update_check_var = BooleanVar(value=bool(self.settings.get("check_updates_on_startup", True)))
         backend_prompt_var = BooleanVar(value=bool(self.settings.get("prompt_backend_install_on_startup", True)))
         startup_animation_var = BooleanVar(value=bool(self.settings.get("show_startup_animation", True)))
+        security_confirm_links_var = BooleanVar(value=bool(self.settings.get("security_confirm_external_links", True)))
+        security_https_manifest_var = BooleanVar(value=bool(self.settings.get("security_require_https_for_update_manifest", True)))
         update_url_var = StringVar(value=str(self.settings.get("update_manifest_url", "")))
         finished = {"done": False}
 
@@ -1088,6 +1095,8 @@ class SuiteApp:
             variable=backend_prompt_var,
         ).pack(anchor="w")
         ttk.Checkbutton(row2, text="Show startup logo animation", variable=startup_animation_var).pack(anchor="w")
+        ttk.Checkbutton(row2, text="Confirm before opening external links", variable=security_confirm_links_var).pack(anchor="w")
+        ttk.Checkbutton(row2, text="Require HTTPS update manifest URLs", variable=security_https_manifest_var).pack(anchor="w")
         ttk.Button(row2, text="Review Missing Backends Now", command=self._open_backend_install_assistant).pack(anchor="w", pady=(6, 0))
 
         row3 = ttk.Frame(outer)
@@ -1116,6 +1125,8 @@ class SuiteApp:
             self.settings["check_updates_on_startup"] = bool(update_check_var.get())
             self.settings["prompt_backend_install_on_startup"] = bool(backend_prompt_var.get())
             self.settings["show_startup_animation"] = bool(startup_animation_var.get())
+            self.settings["security_confirm_external_links"] = bool(security_confirm_links_var.get())
+            self.settings["security_require_https_for_update_manifest"] = bool(security_https_manifest_var.get())
             self.settings["update_manifest_url"] = update_url_var.get().strip()
             self.settings["first_run_done"] = True
             self._refresh_paths_from_settings()
@@ -1620,6 +1631,61 @@ class SuiteApp:
             pass
         self._open_path(target.parent if target.is_file() else target)
 
+    def _url_scheme(self, value: str) -> str:
+        return urllib.parse.urlparse(value.strip()).scheme.lower()
+
+    def _validate_web_url_policy(self, url: str, require_https: bool) -> tuple[bool, str]:
+        value = url.strip()
+        if not value:
+            return False, "No URL was provided."
+        scheme = self._url_scheme(value)
+        if scheme not in {"http", "https"}:
+            return False, f"Unsupported URL scheme '{scheme or '(none)'}'. Only HTTP/HTTPS links are allowed."
+        if require_https and scheme != "https":
+            return False, "Blocked by security settings: HTTPS is required."
+        return True, ""
+
+    def _validate_manifest_source_policy(self, source: str) -> tuple[bool, str]:
+        value = source.strip()
+        if not value:
+            return False, "No update manifest source is configured."
+        scheme = self._url_scheme(value)
+        if scheme in {"", "file"}:
+            if not bool(self.settings.get("security_allow_local_update_manifests", True)):
+                return False, "Blocked by security settings: local update manifest files are disabled."
+            return True, ""
+        if scheme in {"http", "https"}:
+            if bool(self.settings.get("security_require_https_for_update_manifest", True)) and scheme != "https":
+                return False, "Blocked by security settings: update manifest URL must use HTTPS."
+            return True, ""
+        return False, f"Unsupported manifest source scheme '{scheme}'."
+
+    def _open_external_url(self, url: str, purpose: str = "external link") -> bool:
+        value = url.strip()
+        if not value:
+            messagebox.showwarning(APP_TITLE, f"No URL is available for {purpose}.")
+            return False
+        require_https = bool(self.settings.get("security_require_https_for_web_links", True))
+        allowed, reason = self._validate_web_url_policy(value, require_https=require_https)
+        if not allowed:
+            messagebox.showwarning(APP_TITLE, f"Cannot open URL for {purpose}.\n\n{reason}\n\nURL: {value}")
+            return False
+        if bool(self.settings.get("security_confirm_external_links", True)):
+            allow = messagebox.askyesno(
+                APP_TITLE,
+                f"Open this external link for {purpose}?\n\n{value}",
+            )
+            if not allow:
+                self.log(f"Canceled external link for {purpose}: {value}")
+                return False
+        try:
+            webbrowser.open(value)
+            self.log(f"Opened external link for {purpose}: {value}")
+            return True
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, f"Failed to open URL:\n{exc}")
+            return False
+
     def _next_available_path(self, target_path: Path) -> Path:
         suffix = "".join(target_path.suffixes)
         base = target_path.name[: -len(suffix)] if suffix else target_path.name
@@ -1770,8 +1836,7 @@ class SuiteApp:
         opened = 0
         for backend_name in backend_names:
             install_link = self._backend_install_link(backend_name)
-            if install_link:
-                webbrowser.open(install_link)
+            if install_link and self._open_external_url(install_link, purpose=f"{backend_name} install page"):
                 opened += 1
         return opened
 
@@ -1907,8 +1972,7 @@ class SuiteApp:
                 self.log(f"Backend path is unavailable for {backend_name}: {value}")
         install_link = self._backend_install_link(backend_name)
         if install_link:
-            webbrowser.open(install_link)
-            self.log(f"Opened install page for {backend_name}: {install_link}")
+            self._open_external_url(install_link, purpose=f"{backend_name} install page")
             return
         messagebox.showwarning(APP_TITLE, f"No install link is configured for {backend_name}.")
 
@@ -1946,6 +2010,10 @@ class SuiteApp:
         startup_animation_seconds_var = StringVar(value=str(self.settings.get("startup_animation_seconds", 4.6)))
         ffmpeg_threads_var = StringVar(value=str(self.settings.get("ffmpeg_thread_count", 0)))
         log_lines_var = StringVar(value=str(self.settings.get("log_max_lines", 4000)))
+        security_confirm_links_var = BooleanVar(value=bool(self.settings.get("security_confirm_external_links", True)))
+        security_https_links_var = BooleanVar(value=bool(self.settings.get("security_require_https_for_web_links", True)))
+        security_https_manifest_var = BooleanVar(value=bool(self.settings.get("security_require_https_for_update_manifest", True)))
+        security_allow_local_manifest_var = BooleanVar(value=bool(self.settings.get("security_allow_local_update_manifests", True)))
 
         outer = ttk.Frame(dialog, padding=14)
         outer.pack(fill="both", expand=True)
@@ -1964,9 +2032,11 @@ class SuiteApp:
         general_tab = ttk.Frame(tabs, style="App.TFrame", padding=12)
         startup_tab = ttk.Frame(tabs, style="App.TFrame", padding=12)
         performance_tab = ttk.Frame(tabs, style="App.TFrame", padding=12)
+        security_tab = ttk.Frame(tabs, style="App.TFrame", padding=12)
         tabs.add(general_tab, text="General")
         tabs.add(startup_tab, text="Startup / Updates")
         tabs.add(performance_tab, text="Performance / Logs")
+        tabs.add(security_tab, text="Security")
 
         def open_output_from_var() -> None:
             target = Path(output_var.get().strip() or str(self.default_output_root))
@@ -2038,6 +2108,43 @@ class SuiteApp:
             wraplength=760,
         ).pack(anchor="w", pady=(2, 0))
 
+        ttk.Label(
+            security_tab,
+            text="Security controls for update checks and external links.",
+            foreground="#57687F",
+            wraplength=760,
+        ).pack(anchor="w", pady=(0, 8))
+        ttk.Checkbutton(
+            security_tab,
+            text="Confirm before opening external web links",
+            variable=security_confirm_links_var,
+        ).pack(anchor="w")
+        ttk.Checkbutton(
+            security_tab,
+            text="Require HTTPS for external web links (backend pages, update links)",
+            variable=security_https_links_var,
+        ).pack(anchor="w", pady=(2, 0))
+        ttk.Checkbutton(
+            security_tab,
+            text="Require HTTPS for update manifest URLs",
+            variable=security_https_manifest_var,
+        ).pack(anchor="w", pady=(2, 0))
+        ttk.Checkbutton(
+            security_tab,
+            text="Allow local update manifest files for offline/test workflows",
+            variable=security_allow_local_manifest_var,
+        ).pack(anchor="w", pady=(2, 0))
+        ttk.Label(
+            security_tab,
+            text=(
+                "Recommended for production: keep HTTPS requirements enabled.\n"
+                "Disable local manifests only if you want update checks to require network-hosted manifests."
+            ),
+            foreground="#57687F",
+            wraplength=760,
+            justify="left",
+        ).pack(anchor="w", pady=(8, 0))
+
         status_var = StringVar(value="")
         ttk.Label(outer, textvariable=status_var, foreground="#8A5A00").pack(anchor="w", pady=(8, 4))
 
@@ -2054,6 +2161,10 @@ class SuiteApp:
             startup_animation_seconds_var.set(str(defaults["startup_animation_seconds"]))
             ffmpeg_threads_var.set(str(defaults["ffmpeg_thread_count"]))
             log_lines_var.set(str(defaults["log_max_lines"]))
+            security_confirm_links_var.set(bool(defaults["security_confirm_external_links"]))
+            security_https_links_var.set(bool(defaults["security_require_https_for_web_links"]))
+            security_https_manifest_var.set(bool(defaults["security_require_https_for_update_manifest"]))
+            security_allow_local_manifest_var.set(bool(defaults["security_allow_local_update_manifests"]))
             status_var.set("Recommended defaults restored. Save to apply.")
 
         def save_settings() -> None:
@@ -2098,6 +2209,10 @@ class SuiteApp:
             self.settings["startup_animation_seconds"] = float(animation_seconds)
             self.settings["ffmpeg_thread_count"] = int(ffmpeg_threads)
             self.settings["log_max_lines"] = int(log_max_lines)
+            self.settings["security_confirm_external_links"] = bool(security_confirm_links_var.get())
+            self.settings["security_require_https_for_web_links"] = bool(security_https_links_var.get())
+            self.settings["security_require_https_for_update_manifest"] = bool(security_https_manifest_var.get())
+            self.settings["security_allow_local_update_manifests"] = bool(security_allow_local_manifest_var.get())
             self.settings["update_manifest_url"] = update_url_var.get().strip()
             self.settings["first_run_done"] = True
 
@@ -2327,15 +2442,33 @@ class SuiteApp:
                     return
 
             try:
+                allowed_source, source_reason = self._validate_manifest_source_policy(manifest_url)
+                if not allowed_source:
+                    msg = f"Update check blocked by security settings.\n\n{source_reason}\n\nSource: {manifest_url}"
+                    self.log(msg.replace("\n", " "))
+                    if interactive:
+                        self.error(msg)
+                    return
                 with urllib.request.urlopen(manifest_url, timeout=12) as response:
                     payload = response.read().decode("utf-8", errors="replace")
                 data = json.loads(payload)
                 latest = str(data.get("latest_version") or data.get("version") or "").strip()
                 download_url = str(data.get("download_url") or data.get("url") or "").strip()
                 notes = str(data.get("notes") or "").strip()
+                blocked_download_reason = ""
+
+                if download_url:
+                    allow_link, link_reason = self._validate_web_url_policy(
+                        download_url,
+                        require_https=bool(self.settings.get("security_require_https_for_web_links", True)),
+                    )
+                    if not allow_link:
+                        blocked_download_reason = f"Download URL blocked by security settings: {link_reason}"
+                        self.log(blocked_download_reason)
+                        download_url = ""
 
                 if latest and is_version_newer(latest, APP_VERSION):
-                    self.call_ui(lambda: self._show_update_available(latest, download_url, notes))
+                    self.call_ui(lambda: self._show_update_available(latest, download_url, notes, blocked_download_reason))
                 elif interactive:
                     self.info(f"You are up to date. Current version: {APP_VERSION}")
             except urllib.error.URLError as exc:
@@ -2356,16 +2489,19 @@ class SuiteApp:
         if answer:
             self._rerun_setup_wizard()
 
-    def _show_update_available(self, latest: str, download_url: str, notes: str) -> None:
+    def _show_update_available(self, latest: str, download_url: str, notes: str, blocked_reason: str = "") -> None:
         details = notes if notes else "No release notes provided."
+        if blocked_reason:
+            details = f"{details}\n\n{blocked_reason}"
         prompt = (
             f"Update available.\n\nCurrent version: {APP_VERSION}\nLatest version: {latest}\n\n"
             f"{details}\n\nOpen download page now?"
         )
         if download_url and messagebox.askyesno(APP_TITLE, prompt):
-            webbrowser.open(download_url)
+            self._open_external_url(download_url, purpose=f"update download for version {latest}")
         elif not download_url:
-            messagebox.showinfo(APP_TITLE, f"Update {latest} is available, but no download URL was provided.")
+            suffix = f"\n\n{blocked_reason}" if blocked_reason else ""
+            messagebox.showinfo(APP_TITLE, f"Update {latest} is available, but no download URL was provided.{suffix}")
 
     def _on_tab_changed(self, _event=None) -> None:
         current = self.notebook.tab(self.notebook.select(), "text")
@@ -2729,7 +2865,7 @@ class BackendLinksTab(ModuleTab):
         if not url:
             messagebox.showwarning(APP_TITLE, "No URL available for this backend.")
             return
-        webbrowser.open(url)
+        self.app._open_external_url(url, purpose="backend resource")
 
     def _copy_install_command(self) -> None:
         cmd = self.install_cmd_var.get().strip()
