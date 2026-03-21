@@ -29,7 +29,7 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 Source: "..\dist\UniversalFileUtilitySuite.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\PROJECT_PLAN.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\update_manifest.example.json"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\HOW_TO_Universal_File_Utility_Suite.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Universal File Utility Suite"; Filename: "{app}\{#MyAppExeName}"

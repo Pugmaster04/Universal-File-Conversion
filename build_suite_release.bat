@@ -11,7 +11,7 @@ if exist "%SNAPSHOT_SCRIPT%" (
 )
 
 echo [1/5] Building one-file executable...
-python -m PyInstaller --noconfirm --clean --onefile --windowed --name UniversalFileUtilitySuite --icon "assets\universal_file_utility_suite.ico" --add-data "assets\universal_file_utility_suite.ico;assets" --add-data "HOW_TO_Universal_File_Utility_Suite.txt;." modular_file_utility_suite.py
+python -m PyInstaller --noconfirm --clean --onefile --windowed --name UniversalFileUtilitySuite --icon "assets\universal_file_utility_suite.ico" --add-data "assets\universal_file_utility_suite.ico;assets" --add-data "README.md;." modular_file_utility_suite.py
 if errorlevel 1 (
   echo Build failed.
   exit /b 1

@@ -46,7 +46,11 @@ APP_TITLE = "Universal File Utility Suite - Modular Starter"
 APP_SLUG = "UniversalFileUtilitySuite"
 APP_VERSION = "0.5"
 DEFAULT_UPDATE_MANIFEST_URL = ""
-HOW_TO_FILENAME = "HOW_TO_Universal_File_Utility_Suite.txt"
+GUIDE_FILENAMES = (
+    "README.md",
+    "HOW_TO_Universal_File_Utility_Suite.txt",
+    "README_build.txt",
+)
 
 IMAGE_EXTS = {
     ".png",
@@ -2115,11 +2119,10 @@ class SuiteApp:
         ttk.Button(buttons, text="Save Settings", command=save_settings).pack(side="right", padx=(0, 8))
 
     def _locate_how_to_file(self) -> Path | None:
-        candidates = [
-            self.runtime_dir / HOW_TO_FILENAME,
-            self.script_dir / HOW_TO_FILENAME,
-            self.resource_dir / HOW_TO_FILENAME,
-        ]
+        candidates: list[Path] = []
+        for base_dir in (self.runtime_dir, self.script_dir, self.resource_dir):
+            for name in GUIDE_FILENAMES:
+                candidates.append(base_dir / name)
         checked: set[Path] = set()
         for candidate in candidates:
             if candidate in checked:
@@ -2134,8 +2137,9 @@ class SuiteApp:
         if how_to_path is None:
             messagebox.showerror(
                 APP_TITLE,
-                f"How-To file was not found.\nExpected file name: {HOW_TO_FILENAME}\n\n"
-                "Place it in the app folder and try again.",
+                "Guide file was not found.\n"
+                f"Expected one of: {', '.join(GUIDE_FILENAMES)}\n\n"
+                "Place README.md in the app folder and try again.",
             )
             return
         try:
@@ -2145,7 +2149,7 @@ class SuiteApp:
             return
 
         window = tk.Toplevel(self.root)
-        window.title("How-To Guide")
+        window.title("Help Guide")
         window.geometry("980x700")
         window.minsize(780, 520)
         window.transient(self.root)
@@ -2153,7 +2157,7 @@ class SuiteApp:
 
         outer = ttk.Frame(window, padding=12)
         outer.pack(fill="both", expand=True)
-        ttk.Label(outer, text=f"How-To Guide ({how_to_path.name})", font=("Segoe UI Semibold", 12)).pack(anchor="w")
+        ttk.Label(outer, text=f"Help Guide ({how_to_path.name})", font=("Segoe UI Semibold", 12)).pack(anchor="w")
         ttk.Label(outer, text=str(how_to_path), foreground="#57687F", wraplength=920).pack(anchor="w", pady=(2, 8))
 
         viewer = ScrolledText(outer, wrap="word")

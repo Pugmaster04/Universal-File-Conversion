@@ -7,7 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('assets\\universal_file_utility_suite.ico', 'assets'),
-        ('HOW_TO_Universal_File_Utility_Suite.txt', '.'),
+        ('README.md', '.'),
     ],
     hiddenimports=[],
     hookspath=[],
