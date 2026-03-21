@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT_PATH="$REPO_ROOT/tools/create_historical_snapshot.ps1"
+
+if [ -f "$SCRIPT_PATH" ]; then
+  powershell -NoProfile -ExecutionPolicy Bypass -File "$SCRIPT_PATH" -RepoRoot "$REPO_ROOT" -Reason "post-commit" || true
+fi

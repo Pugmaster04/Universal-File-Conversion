@@ -1,0 +1,265 @@
+UNIVERSAL FILE UTILITY SUITE - HOW TO GUIDE
+Version: 0.5
+
+============================================================
+1) WHAT THIS APP IS
+============================================================
+Universal File Utility Suite is a modular desktop utility for file conversion,
+compression, extraction, metadata editing, archive handling, subtitle workflows,
+batch jobs, and backend-assisted operations.
+
+This app is built as a suite of modules instead of one single giant workflow.
+Each module focuses on one job and can be used independently.
+
+Core goals:
+- Handle many practical file tasks from one app
+- Support queue/batch processing
+- Keep optional backend tools discoverable and manageable
+- Keep output handling safe (replace/rename/change destination prompts)
+
+============================================================
+2) MAIN LAYOUT
+============================================================
+Top-level tabs:
+- Workspace
+- Suite Plan
+- Backends / Links
+- Activity Log
+
+Workspace contains module tabs such as:
+- Convert
+- Compress
+- Extract
+- Metadata
+- PDF / Documents
+- Images
+- Audio
+- Video
+- Archives
+- Rename / Organize
+- Duplicate Finder
+- Storage Analyzer
+- Checksums / Integrity
+- Subtitles
+- Presets / Batch Jobs
+
+============================================================
+3) FIRST RUN + SETTINGS
+============================================================
+On first launch, the setup wizard lets you set defaults:
+- Default output folder
+- Theme / window mode options
+- Update and backend prompts
+- Optional update manifest URL
+
+After first run, open settings at:
+- File -> Settings
+
+Settings covers:
+- Output location defaults
+- Appearance and startup window behavior
+- Update behavior
+- Backend install prompts
+- Startup animation controls
+- FFmpeg thread count (for media operations)
+- Activity log retention limit
+
+============================================================
+4) QUICK START WORKFLOW
+============================================================
+Typical workflow:
+1. Open a module (example: Convert)
+2. Add files or add a folder
+3. Pick target format/options
+4. Confirm output folder
+5. Run queue
+6. Review completed output + Activity Log
+
+If a destination filename already exists, the app prompts with safe choices:
+- Replace
+- Rename
+- Change location
+- Cancel
+
+============================================================
+5) CONVERT MODULE BASICS
+============================================================
+The Convert module supports multiple file families:
+- Images
+- Audio/Video
+- Structured data/text
+- Documents (with optional backends)
+
+Queue behavior:
+- Queue is locked to one source file extension at a time
+- This prevents mixed-type confusion and invalid output format picks
+- Completed files are removed from queue automatically
+
+Target format behavior:
+- Output format list adjusts to the source type family
+- Unsupported combinations are blocked before processing starts
+
+============================================================
+6) COMPRESS / EXTRACT / METADATA
+============================================================
+Compress:
+- Image quality compression
+- Video CRF-based compression
+- Audio bitrate compression
+- Batch ZIP packaging
+
+Extract:
+- Audio from video
+- Frames from video
+- Subtitle stream extraction
+- Cover art extraction from audio
+
+Metadata:
+- Read metadata from file
+- Write metadata for media when backend support exists
+- Sidecar metadata fallback for unsupported paths
+
+============================================================
+7) DOCUMENTS / ARCHIVES / SUBTITLES
+============================================================
+Document conversion:
+- Best with Pandoc or LibreOffice installed
+- Text fallback path exists for basic text-type conversions
+
+Archives:
+- Create ZIP and TAR family archives
+- Extract ZIP/TAR/GZ/BZ2/XZ style archives
+
+Subtitles:
+- Convert between common subtitle formats where supported
+- Keep encoding and line formatting in mind for cross-player compatibility
+
+============================================================
+8) BACKENDS (OPTIONAL, RECOMMENDED)
+============================================================
+Detected backends are shown in "Backends / Links".
+
+If backend is detected:
+- Click detected value/path to open file location
+
+If backend is missing:
+- Click to open install link
+- Use install commands shown in backend tab
+
+Recommended backends:
+- FFmpeg + FFprobe (media conversion, extraction, metadata)
+- Pandoc (document conversion)
+- LibreOffice (office/doc conversions)
+- 7-Zip (archive compatibility)
+- ImageMagick (advanced image operations)
+
+Missing backends do not block base app use for non-dependent features.
+
+============================================================
+9) UPDATES
+============================================================
+Update checks can use an update manifest URL from Settings.
+
+Manifest example:
+{
+  "latest_version": "0.5",
+  "download_url": "https://example.com/UniversalFileUtilitySuite.exe",
+  "notes": "Release notes here"
+}
+
+You can run update checks manually:
+- Help -> Check for Updates
+
+============================================================
+10) HOW TO READ THE ACTIVITY LOG
+============================================================
+Activity Log captures:
+- Commands executed
+- Success/failure results
+- Output file mapping
+- Errors for troubleshooting
+
+Log retention is configurable in Settings (max lines).
+Use this to avoid memory bloat in long-running sessions.
+
+============================================================
+11) PERFORMANCE TIPS
+============================================================
+- Use SSD-backed output folders for faster batch writes
+- For media-heavy jobs, install FFmpeg/FFprobe
+- Tune FFmpeg thread count in Settings:
+  - 0 = auto
+  - Higher values can increase speed but also increase CPU usage
+- Keep queue file types consistent and avoid mixed workloads per run
+
+============================================================
+12) TROUBLESHOOTING
+============================================================
+Problem: Backend shows "Not found"
+Fix:
+- Install backend from Backends / Links
+- Restart app
+- Verify executable path exists
+
+Problem: Conversion options look wrong
+Fix:
+- Check source extension lock in queue
+- Clear queue and add one known-good test file
+- Confirm target format is valid for source type
+
+Problem: Updates do not check
+Fix:
+- Set a valid update manifest URL in Settings
+- Ensure JSON keys are correct
+
+Problem: Output overwrite prompt did not appear
+Fix:
+- Verify destination file truly pre-exists
+- Check output folder path in module
+
+============================================================
+13) BACKUP + HISTORY MODEL
+============================================================
+This source repo includes historical snapshot automation:
+- tools/create_historical_snapshot.ps1
+- .githooks/post-commit
+
+Purpose:
+- Preserve source snapshots by version and timestamp
+- Preserve release artifacts when builds run
+- Keep rollback points after each revision/build
+
+Expected local archive location:
+- archive/history/v<version>/<timestamp>_<reason>/
+
+============================================================
+14) SAFE USAGE NOTES
+============================================================
+- Keep personal/legal media workflows lawful
+- Test one file before running large batches
+- Confirm output folder before long jobs
+- Use duplicate backups before destructive replacements
+
+============================================================
+15) WHERE IMPORTANT FILES LIVE
+============================================================
+Settings JSON:
+- %LOCALAPPDATA%\\UniversalFileUtilitySuite\\settings.json
+
+Default output root:
+- %USERPROFILE%\\Documents\\Universal File Utility Suite Output
+  (unless changed in Settings)
+
+Build artifacts:
+- dist\\UniversalFileUtilitySuite.exe
+- installer_output\\UniversalFileUtilitySuite_Setup.exe
+
+============================================================
+16) CHANGELOG SUMMARY FOR 0.5
+============================================================
+- Dedicated File -> Settings page
+- Help -> How-To viewer page
+- Version bump to 0.5
+- Historical snapshot automation hooks/scripts
+- Installer packaging includes How-To guide
+

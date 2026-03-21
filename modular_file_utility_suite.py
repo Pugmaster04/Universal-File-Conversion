@@ -44,8 +44,9 @@ except Exception:
 
 APP_TITLE = "Universal File Utility Suite - Modular Starter"
 APP_SLUG = "UniversalFileUtilitySuite"
-APP_VERSION = "0.4.10"
+APP_VERSION = "0.5"
 DEFAULT_UPDATE_MANIFEST_URL = ""
+HOW_TO_FILENAME = "HOW_TO_Universal_File_Utility_Suite.txt"
 
 IMAGE_EXTS = {
     ".png",
@@ -557,6 +558,16 @@ class TaskEngine:
             raise RuntimeError("Operation canceled by user.")
         return resolved
 
+    def _ffmpeg_thread_args(self) -> list[str]:
+        raw = self.app.settings.get("ffmpeg_thread_count", 0)
+        try:
+            count = int(raw)
+        except Exception:
+            return []
+        if count > 0:
+            return ["-threads", str(count)]
+        return []
+
     def convert_file(self, source: Path, output_dir: Path, target_format: str, options: dict[str, Any]) -> Path:
         target_format = target_format.lower()
         ensure_dir(output_dir)
@@ -591,7 +602,7 @@ class TaskEngine:
             if not ffmpeg:
                 raise RuntimeError("FFmpeg is required for media conversion and was not detected.")
             out_path = self._prepare_output_path(out_path, f"Converted file for {source.name}")
-            cmd = [ffmpeg, "-y", "-i", str(source)]
+            cmd = [ffmpeg, *self._ffmpeg_thread_args(), "-y", "-i", str(source)]
             if target_format in {"mp3", "wav", "flac", "ogg", "m4a"}:
                 bitrate = str(options.get("audio_bitrate", "192k"))
                 cmd += ["-vn", "-b:a", bitrate]
@@ -645,6 +656,7 @@ class TaskEngine:
             preset = str(options.get("video_preset", "medium"))
             cmd = [
                 ffmpeg,
+                *self._ffmpeg_thread_args(),
                 "-y",
                 "-i",
                 str(source),
@@ -667,7 +679,7 @@ class TaskEngine:
             out_path = output_dir / f"{source.stem}_compressed.mp3"
             out_path = self._prepare_output_path(out_path, f"Compressed file for {source.name}")
             bitrate = str(options.get("audio_bitrate", "128k"))
-            cmd = [ffmpeg, "-y", "-i", str(source), "-vn", "-b:a", bitrate, str(out_path)]
+            cmd = [ffmpeg, *self._ffmpeg_thread_args(), "-y", "-i", str(source), "-vn", "-b:a", bitrate, str(out_path)]
             self.app.run_process(cmd)
             return out_path
 
@@ -698,7 +710,7 @@ class TaskEngine:
             audio_fmt = str(options.get("audio_format", "mp3")).lower()
             out_path = output_dir / f"{source.stem}_audio.{audio_fmt}"
             out_path = self._prepare_output_path(out_path, f"Extracted file for {source.name}")
-            cmd = [ffmpeg, "-y", "-i", str(source), "-vn", str(out_path)]
+            cmd = [ffmpeg, *self._ffmpeg_thread_args(), "-y", "-i", str(source), "-vn", str(out_path)]
             self.app.run_process(cmd)
             return out_path
 
@@ -707,7 +719,7 @@ class TaskEngine:
             frame_dir = output_dir / f"{source.stem}_frames"
             ensure_dir(frame_dir)
             pattern = frame_dir / "frame_%05d.png"
-            cmd = [ffmpeg, "-y", "-i", str(source), "-vf", f"fps={fps}", str(pattern)]
+            cmd = [ffmpeg, *self._ffmpeg_thread_args(), "-y", "-i", str(source), "-vf", f"fps={fps}", str(pattern)]
             self.app.run_process(cmd)
             return frame_dir
 
@@ -717,6 +729,7 @@ class TaskEngine:
             out_path = self._prepare_output_path(out_path, f"Extracted file for {source.name}")
             cmd = [
                 ffmpeg,
+                *self._ffmpeg_thread_args(),
                 "-y",
                 "-i",
                 str(source),
@@ -732,7 +745,7 @@ class TaskEngine:
         if operation_key == "cover_art_from_audio":
             out_path = output_dir / f"{source.stem}_cover.jpg"
             out_path = self._prepare_output_path(out_path, f"Extracted file for {source.name}")
-            cmd = [ffmpeg, "-y", "-i", str(source), "-an", "-vcodec", "copy", str(out_path)]
+            cmd = [ffmpeg, *self._ffmpeg_thread_args(), "-y", "-i", str(source), "-an", "-vcodec", "copy", str(out_path)]
             self.app.run_process(cmd)
             return out_path
 
@@ -794,6 +807,7 @@ class TaskEngine:
             out_path = self._prepare_output_path(out_path, f"Metadata output for {source.name}")
             cmd = [
                 self.app.backends.ffmpeg,
+                *self._ffmpeg_thread_args(),
                 "-y",
                 "-i",
                 str(source),
@@ -968,9 +982,12 @@ class SuiteApp:
         self._apply_window_mode_state()
         self._set_backend_summary_status()
         self.root.after(100, self._poll_ui_queue)
-        try:
-            self._show_startup_logo_animation()
-        except Exception:
+        if bool(self.settings.get("show_startup_animation", True)):
+            try:
+                self._show_startup_logo_animation()
+            except Exception:
+                self.root.deiconify()
+        else:
             self.root.deiconify()
         if self.settings.get("check_updates_on_startup", True):
             self.root.after(1200, lambda: self._check_updates_in_background(interactive=False))
@@ -986,6 +1003,10 @@ class SuiteApp:
             "output_folder": str(default_output),
             "check_updates_on_startup": True,
             "prompt_backend_install_on_startup": True,
+            "show_startup_animation": True,
+            "startup_animation_seconds": 4.6,
+            "ffmpeg_thread_count": 0,
+            "log_max_lines": 4000,
             "update_manifest_url": DEFAULT_UPDATE_MANIFEST_URL,
             "last_update_check": "",
         }
@@ -1030,6 +1051,7 @@ class SuiteApp:
         borderless_var = BooleanVar(value=bool(self.settings.get("borderless_maximized", False)))
         update_check_var = BooleanVar(value=bool(self.settings.get("check_updates_on_startup", True)))
         backend_prompt_var = BooleanVar(value=bool(self.settings.get("prompt_backend_install_on_startup", True)))
+        startup_animation_var = BooleanVar(value=bool(self.settings.get("show_startup_animation", True)))
         update_url_var = StringVar(value=str(self.settings.get("update_manifest_url", "")))
         finished = {"done": False}
 
@@ -1039,7 +1061,7 @@ class SuiteApp:
         ttk.Label(outer, text="Welcome to Universal File Utility Suite", font=("Segoe UI Semibold", 14)).pack(anchor="w")
         ttk.Label(
             outer,
-            text="Set your defaults now. You can change them later from File -> Run First-Run Setup Wizard.",
+            text="Set your defaults now. You can change them later from File -> Settings.",
             foreground="#475A72",
             wraplength=590,
         ).pack(anchor="w", pady=(4, 12))
@@ -1061,6 +1083,7 @@ class SuiteApp:
             text="Prompt to install missing backends on startup (recommended)",
             variable=backend_prompt_var,
         ).pack(anchor="w")
+        ttk.Checkbutton(row2, text="Show startup logo animation", variable=startup_animation_var).pack(anchor="w")
         ttk.Button(row2, text="Review Missing Backends Now", command=self._open_backend_install_assistant).pack(anchor="w", pady=(6, 0))
 
         row3 = ttk.Frame(outer)
@@ -1088,6 +1111,7 @@ class SuiteApp:
                 self.settings["borderless_maximized"] = False
             self.settings["check_updates_on_startup"] = bool(update_check_var.get())
             self.settings["prompt_backend_install_on_startup"] = bool(backend_prompt_var.get())
+            self.settings["show_startup_animation"] = bool(startup_animation_var.get())
             self.settings["update_manifest_url"] = update_url_var.get().strip()
             self.settings["first_run_done"] = True
             self._refresh_paths_from_settings()
@@ -1397,6 +1421,7 @@ class SuiteApp:
         file_menu = tk.Menu(menu, tearoff=0)
         file_menu.add_command(label="Open Output Folder", command=self._open_output_folder)
         file_menu.add_command(label="Open Program Folder", command=lambda: self._open_path(self.runtime_dir))
+        file_menu.add_command(label="Settings", command=self._open_settings_dialog)
         file_menu.add_separator()
         file_menu.add_command(label="Run First-Run Setup Wizard", command=self._rerun_setup_wizard)
         file_menu.add_command(label="Install Missing Backends", command=self._open_backend_install_assistant)
@@ -1423,6 +1448,7 @@ class SuiteApp:
 
         help_menu = tk.Menu(menu, tearoff=0)
         help_menu.add_command(label="Check for Updates", command=lambda: self._check_updates_in_background(interactive=True))
+        help_menu.add_command(label="How-To", command=self._open_how_to_window)
         help_menu.add_command(label="About", command=self._show_about)
         menu.add_cascade(label="Help", menu=help_menu)
 
@@ -1456,7 +1482,9 @@ class SuiteApp:
         ttk.Button(quick_row, text="Toggle Dark Mode", style="App.TButton", command=self._toggle_dark_mode_button).pack(side="left", padx=(8, 0))
         ttk.Button(quick_row, text="Toggle Borderless", style="App.TButton", command=self._toggle_borderless_button).pack(side="left", padx=(8, 0))
         ttk.Button(quick_row, text="Toggle Fullscreen", style="App.TButton", command=self._toggle_fullscreen_button).pack(side="left", padx=(8, 0))
+        ttk.Button(quick_row, text="Settings", style="App.TButton", command=self._open_settings_dialog).pack(side="left", padx=(8, 0))
         ttk.Button(quick_row, text="Check Updates", style="App.TButton", command=lambda: self._check_updates_in_background(interactive=True)).pack(side="left", padx=(8, 0))
+        ttk.Button(quick_row, text="How-To", style="App.TButton", command=self._open_how_to_window).pack(side="left", padx=(8, 0))
         ttk.Button(quick_row, text="About", style="App.TButton", command=self._show_about).pack(side="left", padx=(8, 0))
 
         backend_box = ttk.LabelFrame(root_frame, text="Detected Backends", style="Card.TLabelframe")
@@ -1894,6 +1922,260 @@ class SuiteApp:
         self._set_backend_summary_status()
         self.log("Setup wizard completed and settings were updated.")
 
+    def _open_settings_dialog(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Settings")
+        dialog.geometry("840x670")
+        dialog.minsize(780, 610)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self._apply_window_icon_to(dialog)
+
+        output_var = StringVar(value=str(self.settings.get("output_folder", self.default_output_root)))
+        update_url_var = StringVar(value=str(self.settings.get("update_manifest_url", "")))
+        dark_mode_var = BooleanVar(value=bool(self.settings.get("dark_mode", False)))
+        fullscreen_var = BooleanVar(value=bool(self.settings.get("fullscreen", False)))
+        borderless_var = BooleanVar(value=bool(self.settings.get("borderless_maximized", False)))
+        update_check_var = BooleanVar(value=bool(self.settings.get("check_updates_on_startup", True)))
+        backend_prompt_var = BooleanVar(value=bool(self.settings.get("prompt_backend_install_on_startup", True)))
+        startup_animation_var = BooleanVar(value=bool(self.settings.get("show_startup_animation", True)))
+        startup_animation_seconds_var = StringVar(value=str(self.settings.get("startup_animation_seconds", 4.6)))
+        ffmpeg_threads_var = StringVar(value=str(self.settings.get("ffmpeg_thread_count", 0)))
+        log_lines_var = StringVar(value=str(self.settings.get("log_max_lines", 4000)))
+
+        outer = ttk.Frame(dialog, padding=14)
+        outer.pack(fill="both", expand=True)
+
+        ttk.Label(outer, text="Settings", font=("Segoe UI Semibold", 14)).pack(anchor="w")
+        ttk.Label(
+            outer,
+            text="Adjust startup, output, visual, and processing defaults for better stability and performance.",
+            foreground="#475A72",
+            wraplength=760,
+        ).pack(anchor="w", pady=(4, 10))
+
+        tabs = ttk.Notebook(outer)
+        tabs.pack(fill="both", expand=True)
+
+        general_tab = ttk.Frame(tabs, style="App.TFrame", padding=12)
+        startup_tab = ttk.Frame(tabs, style="App.TFrame", padding=12)
+        performance_tab = ttk.Frame(tabs, style="App.TFrame", padding=12)
+        tabs.add(general_tab, text="General")
+        tabs.add(startup_tab, text="Startup / Updates")
+        tabs.add(performance_tab, text="Performance / Logs")
+
+        def open_output_from_var() -> None:
+            target = Path(output_var.get().strip() or str(self.default_output_root))
+            ensure_dir(target)
+            self._open_path(target)
+
+        ttk.Label(general_tab, text="Default output folder:").pack(anchor="w")
+        output_row = ttk.Frame(general_tab)
+        output_row.pack(fill="x", pady=(4, 8))
+        ttk.Entry(output_row, textvariable=output_var).pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            output_row,
+            text="Browse",
+            command=lambda: self._browse_into_var(output_var, "Choose default output folder"),
+        ).pack(side="left", padx=(8, 0))
+        ttk.Button(
+            output_row,
+            text="Open",
+            command=open_output_from_var,
+        ).pack(side="left", padx=(8, 0))
+
+        ttk.Label(general_tab, text="Appearance and window mode:").pack(anchor="w", pady=(4, 0))
+        ttk.Checkbutton(general_tab, text="Dark mode", variable=dark_mode_var).pack(anchor="w", pady=(2, 0))
+        ttk.Checkbutton(general_tab, text="Start in fullscreen mode", variable=fullscreen_var).pack(anchor="w")
+        ttk.Checkbutton(general_tab, text="Start in borderless maximized mode", variable=borderless_var).pack(anchor="w")
+
+        ttk.Label(general_tab, text="Update manifest URL (optional):").pack(anchor="w", pady=(10, 0))
+        ttk.Entry(general_tab, textvariable=update_url_var).pack(fill="x", pady=(4, 0))
+        ttk.Label(
+            general_tab,
+            text='Example JSON: {"latest_version":"0.5.1","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            foreground="#57687F",
+            wraplength=760,
+        ).pack(anchor="w", pady=(4, 0))
+
+        ttk.Checkbutton(startup_tab, text="Check for updates on startup", variable=update_check_var).pack(anchor="w")
+        ttk.Checkbutton(
+            startup_tab,
+            text="Prompt to install missing optional backends on startup",
+            variable=backend_prompt_var,
+        ).pack(anchor="w", pady=(2, 0))
+        ttk.Checkbutton(startup_tab, text="Show startup logo animation", variable=startup_animation_var).pack(anchor="w", pady=(2, 0))
+
+        duration_row = ttk.Frame(startup_tab)
+        duration_row.pack(anchor="w", pady=(10, 0))
+        ttk.Label(duration_row, text="Startup animation length (seconds):").pack(side="left")
+        ttk.Entry(duration_row, width=8, textvariable=startup_animation_seconds_var).pack(side="left", padx=(8, 0))
+
+        ttk.Button(startup_tab, text="Install Missing Backends Now", command=self._open_backend_install_assistant).pack(anchor="w", pady=(12, 0))
+
+        threads_row = ttk.Frame(performance_tab)
+        threads_row.pack(anchor="w", pady=(0, 8))
+        ttk.Label(threads_row, text="FFmpeg thread count (0 = auto):").pack(side="left")
+        ttk.Entry(threads_row, width=8, textvariable=ffmpeg_threads_var).pack(side="left", padx=(8, 0))
+
+        logs_row = ttk.Frame(performance_tab)
+        logs_row.pack(anchor="w", pady=(0, 8))
+        ttk.Label(logs_row, text="Max activity log lines to keep:").pack(side="left")
+        ttk.Entry(logs_row, width=8, textvariable=log_lines_var).pack(side="left", padx=(8, 0))
+
+        ttk.Label(
+            performance_tab,
+            text=(
+                "Higher FFmpeg thread counts can improve speed on multi-core systems, but may increase CPU usage.\n"
+                "Log retention controls memory use during long sessions."
+            ),
+            foreground="#57687F",
+            justify="left",
+            wraplength=760,
+        ).pack(anchor="w", pady=(2, 0))
+
+        status_var = StringVar(value="")
+        ttk.Label(outer, textvariable=status_var, foreground="#8A5A00").pack(anchor="w", pady=(8, 4))
+
+        def restore_defaults() -> None:
+            defaults = self._default_settings()
+            output_var.set(str(defaults["output_folder"]))
+            update_url_var.set(str(defaults["update_manifest_url"]))
+            dark_mode_var.set(bool(defaults["dark_mode"]))
+            fullscreen_var.set(bool(defaults["fullscreen"]))
+            borderless_var.set(bool(defaults["borderless_maximized"]))
+            update_check_var.set(bool(defaults["check_updates_on_startup"]))
+            backend_prompt_var.set(bool(defaults["prompt_backend_install_on_startup"]))
+            startup_animation_var.set(bool(defaults["show_startup_animation"]))
+            startup_animation_seconds_var.set(str(defaults["startup_animation_seconds"]))
+            ffmpeg_threads_var.set(str(defaults["ffmpeg_thread_count"]))
+            log_lines_var.set(str(defaults["log_max_lines"]))
+            status_var.set("Recommended defaults restored. Save to apply.")
+
+        def save_settings() -> None:
+            output_folder = output_var.get().strip() or str(self.default_output_root)
+            try:
+                animation_seconds = float(startup_animation_seconds_var.get().strip())
+            except Exception:
+                messagebox.showerror(APP_TITLE, "Startup animation length must be a number between 1.0 and 20.0 seconds.")
+                return
+            if animation_seconds < 1.0 or animation_seconds > 20.0:
+                messagebox.showerror(APP_TITLE, "Startup animation length must be between 1.0 and 20.0 seconds.")
+                return
+
+            try:
+                ffmpeg_threads = int(ffmpeg_threads_var.get().strip())
+            except Exception:
+                messagebox.showerror(APP_TITLE, "FFmpeg thread count must be an integer from 0 to 128.")
+                return
+            if ffmpeg_threads < 0 or ffmpeg_threads > 128:
+                messagebox.showerror(APP_TITLE, "FFmpeg thread count must be between 0 and 128.")
+                return
+
+            try:
+                log_max_lines = int(log_lines_var.get().strip())
+            except Exception:
+                messagebox.showerror(APP_TITLE, "Max activity log lines must be an integer from 200 to 50000.")
+                return
+            if log_max_lines < 200 or log_max_lines > 50000:
+                messagebox.showerror(APP_TITLE, "Max activity log lines must be between 200 and 50000.")
+                return
+
+            self.settings["output_folder"] = output_folder
+            self.settings["dark_mode"] = bool(dark_mode_var.get())
+            self.settings["fullscreen"] = bool(fullscreen_var.get())
+            self.settings["borderless_maximized"] = bool(borderless_var.get())
+            if self.settings["fullscreen"] and self.settings["borderless_maximized"]:
+                self.settings["borderless_maximized"] = False
+                status_var.set("Borderless was disabled because fullscreen is enabled.")
+            self.settings["check_updates_on_startup"] = bool(update_check_var.get())
+            self.settings["prompt_backend_install_on_startup"] = bool(backend_prompt_var.get())
+            self.settings["show_startup_animation"] = bool(startup_animation_var.get())
+            self.settings["startup_animation_seconds"] = float(animation_seconds)
+            self.settings["ffmpeg_thread_count"] = int(ffmpeg_threads)
+            self.settings["log_max_lines"] = int(log_max_lines)
+            self.settings["update_manifest_url"] = update_url_var.get().strip()
+            self.settings["first_run_done"] = True
+
+            self._refresh_paths_from_settings()
+            self.dark_mode_var.set(bool(self.settings["dark_mode"]))
+            self.fullscreen_var.set(bool(self.settings["fullscreen"]))
+            self.borderless_max_var.set(bool(self.settings["borderless_maximized"]))
+            self._apply_theme(bool(self.dark_mode_var.get()))
+            self._apply_window_mode_state()
+            self._set_backend_summary_status()
+            self._save_settings()
+            self.log("Settings updated from Settings dialog.")
+            dialog.destroy()
+
+        buttons = ttk.Frame(outer)
+        buttons.pack(fill="x", pady=(6, 0))
+        ttk.Button(buttons, text="Restore Defaults", command=restore_defaults).pack(side="left")
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="right")
+        ttk.Button(buttons, text="Save Settings", command=save_settings).pack(side="right", padx=(0, 8))
+
+    def _locate_how_to_file(self) -> Path | None:
+        candidates = [
+            self.runtime_dir / HOW_TO_FILENAME,
+            self.script_dir / HOW_TO_FILENAME,
+            self.resource_dir / HOW_TO_FILENAME,
+        ]
+        checked: set[Path] = set()
+        for candidate in candidates:
+            if candidate in checked:
+                continue
+            checked.add(candidate)
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _open_how_to_window(self) -> None:
+        how_to_path = self._locate_how_to_file()
+        if how_to_path is None:
+            messagebox.showerror(
+                APP_TITLE,
+                f"How-To file was not found.\nExpected file name: {HOW_TO_FILENAME}\n\n"
+                "Place it in the app folder and try again.",
+            )
+            return
+        try:
+            content = how_to_path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, f"Failed to open How-To file:\n{exc}")
+            return
+
+        window = tk.Toplevel(self.root)
+        window.title("How-To Guide")
+        window.geometry("980x700")
+        window.minsize(780, 520)
+        window.transient(self.root)
+        self._apply_window_icon_to(window)
+
+        outer = ttk.Frame(window, padding=12)
+        outer.pack(fill="both", expand=True)
+        ttk.Label(outer, text=f"How-To Guide ({how_to_path.name})", font=("Segoe UI Semibold", 12)).pack(anchor="w")
+        ttk.Label(outer, text=str(how_to_path), foreground="#57687F", wraplength=920).pack(anchor="w", pady=(2, 8))
+
+        viewer = ScrolledText(outer, wrap="word")
+        viewer.pack(fill="both", expand=True)
+        viewer.insert("1.0", content)
+        viewer.configure(state="disabled")
+
+        actions = ttk.Frame(outer)
+        actions.pack(fill="x", pady=(8, 0))
+
+        def open_external() -> None:
+            try:
+                if os.name == "nt":
+                    subprocess.Popen(["notepad.exe", str(how_to_path)])
+                else:
+                    self._open_path(how_to_path)
+            except Exception as exc:
+                messagebox.showerror(APP_TITLE, f"Failed to open external editor:\n{exc}")
+
+        ttk.Button(actions, text="Open in Editor", command=open_external).pack(side="left")
+        ttk.Button(actions, text="Close", command=window.destroy).pack(side="right")
+
     def _show_about(self) -> None:
         available = sum(1 for _, value in self.backends.as_rows() if value != "Not found")
         total = len(self.backends.as_rows())
@@ -1977,7 +2259,11 @@ class SuiteApp:
         state_label.pack()
 
         start = time.perf_counter()
-        duration = 4.6
+        try:
+            duration = float(self.settings.get("startup_animation_seconds", 4.6))
+        except Exception:
+            duration = 4.6
+        duration = max(1.0, min(20.0, duration))
         spin_cycles = 1.6
         pulse_cycles = 1.2
 
@@ -2113,6 +2399,15 @@ class SuiteApp:
     def _append_log(self, message: str) -> None:
         stamp = time.strftime("%H:%M:%S")
         self.log_box.insert(END, f"[{stamp}] {message}\n")
+        try:
+            max_lines = int(self.settings.get("log_max_lines", 4000))
+        except Exception:
+            max_lines = 4000
+        max_lines = max(200, min(50000, max_lines))
+        total_lines = int(float(self.log_box.index("end-1c").split(".")[0]))
+        overflow = total_lines - max_lines
+        if overflow > 0:
+            self.log_box.delete("1.0", f"{overflow + 1}.0")
         self.log_box.see(END)
         self.status_left_var.set(message[:120])
 

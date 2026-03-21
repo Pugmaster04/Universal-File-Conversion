@@ -10,6 +10,8 @@ build/
 dist/
 installer_output/
 suite_output/
+archive/history/
+archive/releases/
 
 .pytest_cache/
 .mypy_cache/
