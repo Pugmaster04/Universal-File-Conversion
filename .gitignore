@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+env/
+
+build/
+dist/
+installer_output/
+suite_output/
+
+.pytest_cache/
+.mypy_cache/

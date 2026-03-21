@@ -1,0 +1,22 @@
+Created by the user. Built with AI assistance.
+
+This source package uses or can interact with third-party components.
+Check the installed versions and their licenses on the system where you build or distribute the program.
+The major components intended by this package include:
+- Pillow
+- imageio-ffmpeg / FFmpeg
+- PyYAML
+- py7zr
+- xmltodict
+- tomli-w
+- PyInstaller
+
+Optional external tools the app can call if installed:
+- ImageMagick
+- Pandoc
+- LibreOffice
+- Inkscape
+- calibre
+- 7-Zip
+
+Before redistributing a built EXE, review the licenses and redistribution terms for the exact versions you bundle or rely on.

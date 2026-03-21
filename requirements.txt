@@ -1,0 +1,7 @@
+pillow
+imageio-ffmpeg
+pyyaml
+py7zr
+xmltodict
+tomli-w
+pyinstaller
