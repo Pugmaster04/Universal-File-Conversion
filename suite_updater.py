@@ -18,7 +18,7 @@ from tkinter import BooleanVar, StringVar, filedialog, messagebox, ttk
 
 
 APP_TITLE = "Universal Conversion Hub (UCH) Updater"
-CURRENT_VERSION = "0.5"
+CURRENT_VERSION = "0.6.5"
 APP_SLUG = "UniversalConversionHubUCH"
 LEGACY_APP_SLUGS = ("UniversalConversionHubHCB", "UniversalFileUtilitySuite")
 SINGLE_INSTANCE_MUTEX_NAMES = (

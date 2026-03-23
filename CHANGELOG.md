@@ -4,10 +4,37 @@ All notable changes to this project are documented in this file.
 
 This changelog includes:
 - Legacy `0.4.x` milestones (pre-canonical-repo binary iterations)
-- Full `0.5` feature/fix/security/build history
-- Rapid `0.5` startup-flow revision trail captured in archive snapshots
+- Full `0.5` and `0.6.x` feature/fix/security/build history
+- Rapid revision trails captured in archive snapshots
 
-## [Unreleased]
+## [0.6.5] - 2026-03-22
+
+### Added
+- Accessibility settings for:
+  - high contrast mode
+  - interface scale presets
+  - reduced-motion startup behavior
+- Advanced `Images` tab with batch resize/export/sharpen controls.
+- Advanced `Audio` tab with format conversion, sample-rate conversion, channel selection, loudness normalization, and silence trimming controls.
+- Advanced `Video` tab with remux, trim, stream-prep presets, and thumbnail-sheet workflows.
+- Legacy `0.4.x` release archives imported into the canonical repo archive from the earlier `Universal File Utility Suite` source tree.
+- Canonical archive import script: `tools/import_legacy_release_archives.ps1`.
+- Canonical archive index: `archive/ARCHIVE_INDEX.md`.
+
+### Changed
+- Theme and widget styling now scale with the configured interface size instead of assuming a fixed 100% layout.
+- Tooltip text now follows the app font scaling for better readability.
+- Treeviews, buttons, tab spacing, badges, and other shell controls now use scaled sizing and spacing for better visibility on larger displays.
+- Startup splash now respects reduced-motion preference and skips animation when that mode is enabled.
+- Storage Analyzer chart labels and splash content now scale correctly with the selected interface size.
+- Presets / Batch Jobs now recognize `Images`, `Audio`, and `Video` as first-class batchable modules.
+- `0.6.5` is now the active app, updater, installer, README, and update-manifest version.
+
+### Archive
+- `0.6.2` history remains preserved under `archive/history/v0.6.2`.
+- Imported legacy versions are now preserved under `archive/legacy_universal_file_utility_suite`.
+
+## [0.6.2] - 2026-03-22
 
 ### Added
 - Updater now supports GitHub repo update checks (repo URL input), with detection flow:
@@ -22,6 +49,8 @@ This changelog includes:
   - `UniversalConversionHub_UCH_Setup.exe`
 - Backward-compatible settings resolution for existing `%LOCALAPPDATA%\UniversalConversionHubHCB` and `%LOCALAPPDATA%\UniversalFileUtilitySuite` users.
 - Linux build script scaffold: `build_linux.sh`.
+- Settings toggle for hover tooltips, with Convert/Compress helper text able to switch between inline guidance and hover-only explanations.
+- Hover guidance extended into Storage Analyzer, Duplicate Finder, and Backends / Links controls.
 
 ### Changed
 - Updater default source now points to the project GitHub repository.
@@ -32,6 +61,12 @@ This changelog includes:
 - Release cleanup and installer mutex handling now remove or recognize both prior `HCB` artifacts and older `UniversalFileUtilitySuite` artifacts during builds and upgrades.
 - Repository line-ending policy is now explicit by file type to reduce noisy diffs across Windows and cross-platform scripts.
 - Canonical build config filenames now match the shipped product name, and `build_windows.bat` now delegates to the maintained release pipeline.
+- Main shell layout reworked for clearer hierarchy: grouped action panels, cleaner header/session card, and a less cluttered workspace surface.
+- Storage Analyzer layout reworked around chart-first presentation with dedicated analysis/progress cards and a cleaner split between visualization and table data.
+- Extract tab now reroutes dropped archive files to the Archives workflow instead of treating them like media inputs.
+- Startup regression fixed where Compress tab button wiring referenced Extract-only helpers and crashed app initialization.
+- Backend corner tab now participates in the hover tooltip system for quick backend status guidance.
+- Storage Analyzer and Backends / Links now hide their inline helper text when hover-tooltips mode is enabled, while keeping interaction hints available on hover.
 
 ### Removed
 - Obsolete `UniversalFileConverterHub` prototype build config and source entrypoint from the canonical repo. Historical snapshots remain the fallback for that legacy branch.

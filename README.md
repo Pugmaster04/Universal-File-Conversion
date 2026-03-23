@@ -1,9 +1,10 @@
 ﻿# Universal Conversion Hub (UCH)
 
-Version: `0.5`
+Version: `0.6.5`
 
 Changelog:
 - `CHANGELOG.md` (full project history and release notes)
+- `archive/ARCHIVE_INDEX.md` (canonical version/archive map)
 
 This is a modular desktop suite for practical file workflows:
 - Convert
@@ -19,6 +20,11 @@ This is a modular desktop suite for practical file workflows:
 - Checksums / Integrity
 - Subtitles
 - Presets / Batch Jobs
+
+Advanced media modules now include:
+- Images: resize to fit, export to a chosen format, and optional sharpen pass
+- Audio: format conversion, sample-rate conversion, mono/stereo control, loudness normalization, and silence trimming
+- Video: remux, trim clips, stream-prep presets, and thumbnail-sheet generation
 
 This file is the combined **README + How-To** guide.
 
@@ -70,6 +76,9 @@ After that, use:
 Settings page includes:
 - Output path defaults
 - Dark mode, fullscreen, borderless defaults
+- Hover tooltip preference for advanced option explanations
+  - Applies to Convert, Compress, Storage Analyzer, Duplicate Finder, and Backends / Links
+- High contrast mode, interface scaling, and reduced-motion startup behavior for improved accessibility
 - Startup animation toggle + duration
 - FFmpeg thread count (`0` = auto)
 - Activity log line retention
@@ -126,7 +135,7 @@ Example:
 
 ```json
 {
-  "latest_version": "0.5",
+  "latest_version": "0.6.5",
   "download_url": "https://example.com/UniversalConversionHub_UCH.exe",
   "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "notes": "Release notes here"

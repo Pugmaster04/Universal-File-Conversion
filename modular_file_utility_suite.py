@@ -29,9 +29,11 @@ from tkinter import END, SINGLE, BooleanVar, IntVar, StringVar, filedialog, mess
 from tkinter.scrolledtext import ScrolledText
 
 try:
-    from PIL import Image, UnidentifiedImageError
+    from PIL import Image, ImageFilter, ImageOps, UnidentifiedImageError
 except Exception:
     Image = None
+    ImageFilter = None
+    ImageOps = None
     UnidentifiedImageError = Exception
 
 try:
@@ -53,7 +55,7 @@ except Exception:
 APP_TITLE = "Universal Conversion Hub (UCH)"
 APP_SLUG = "UniversalConversionHubUCH"
 LEGACY_APP_SLUGS = ("UniversalConversionHubHCB", "UniversalFileUtilitySuite")
-APP_VERSION = "0.5"
+APP_VERSION = "0.6.5"
 DEFAULT_UPDATE_MANIFEST_URL = ""
 APP_EXE_BASENAME = "UniversalConversionHub_UCH"
 UPDATER_EXE_BASENAME = "UniversalConversionHub_UCH_Updater"
@@ -140,6 +142,53 @@ MEDIA_FORMATS = ["mp4", "mkv", "mov", "webm", "mp3", "wav", "flac", "ogg", "m4a"
 DATA_FORMATS = ["json", "yaml", "csv", "tsv"]
 DOC_FORMATS = ["pdf", "docx", "odt", "html", "md", "txt", "epub", "rtf"]
 ARCHIVE_FORMATS = ["zip", "tar", "tar.gz", "tar.bz2", "tar.xz"]
+ARCHIVE_INPUT_EXTS = {".zip", ".tar", ".gz", ".bz2", ".xz", ".7z"}
+AUDIO_BITRATE_HELP_TEXT = "Higher bitrate = better audio and larger files. 128k-192k is a common balance."
+VIDEO_PRESET_HELP_TEXT = "Controls speed vs compression efficiency. Slower presets take longer but can make smaller files."
+VIDEO_CRF_HELP_TEXT = "Lower CRF = higher quality and larger files. Higher CRF = smaller files and lower quality. Typical: 18-23 high quality."
+ZIP_LEVEL_HELP_TEXT = "Higher ZIP level = slower compression and smaller archives. Lower level = faster compression and larger archives."
+IMAGE_RESIZE_HELP_TEXT = (
+    "Resize images to fit within the chosen width and height while keeping aspect ratio. "
+    "Use 0 to leave that dimension unconstrained."
+)
+IMAGE_SHARPEN_HELP_TEXT = "Apply a light unsharp mask after resize/export. 0 disables sharpening."
+AUDIO_SAMPLE_RATE_HELP_TEXT = (
+    "Keep source preserves the original rate. 44.1 kHz and 48 kHz are common delivery targets."
+)
+AUDIO_CHANNELS_HELP_TEXT = (
+    "Keep source preserves the original channel layout. Mono reduces size; stereo is the common default."
+)
+AUDIO_CLEANUP_HELP_TEXT = (
+    "Normalization evens out loudness. Silence trim removes quiet leading and trailing sections."
+)
+VIDEO_MODE_HELP_TEXT = (
+    "Remux repackages without re-encoding. Trim makes a clip. Stream Prep re-encodes for delivery. "
+    "Thumbnail Sheet creates a contact image."
+)
+VIDEO_TRIM_HELP_TEXT = "Use HH:MM:SS, MM:SS, or seconds. Start and end values are optional, but at least one is required."
+VIDEO_THUMBNAIL_HELP_TEXT = "Generate a contact sheet by sampling frames at a fixed interval."
+AUDIO_PROCESS_FORMATS = ["mp3", "wav", "flac", "ogg", "m4a"]
+VIDEO_REMUX_FORMATS = ["mp4", "mkv", "mov"]
+VIDEO_STREAM_PRESETS: dict[str, dict[str, Any]] = {
+    "YouTube 1080p": {"width": 1920, "height": 1080, "fps": 30, "video_bitrate": "8000k", "audio_bitrate": "192k", "suffix": "youtube1080p"},
+    "Discord 720p": {"width": 1280, "height": 720, "fps": 30, "video_bitrate": "3500k", "audio_bitrate": "128k", "suffix": "discord720p"},
+    "Shorts 1080x1920": {
+        "width": 1080,
+        "height": 1920,
+        "fps": 30,
+        "video_bitrate": "6000k",
+        "audio_bitrate": "160k",
+        "suffix": "shorts1080x1920",
+    },
+    "TikTok 1080x1920": {
+        "width": 1080,
+        "height": 1920,
+        "fps": 30,
+        "video_bitrate": "5500k",
+        "audio_bitrate": "160k",
+        "suffix": "tiktok1080x1920",
+    },
+}
 
 BACKEND_LINKS: dict[str, dict[str, str]] = {
     "FFmpeg": {
@@ -215,6 +264,11 @@ def human_size(value: int) -> str:
     return f"{value} B"
 
 
+def is_archive_input_path(path: Path) -> bool:
+    lower_name = path.name.lower()
+    return path.suffix.lower() in ARCHIVE_INPUT_EXTS or lower_name.endswith((".tar.gz", ".tar.bz2", ".tar.xz"))
+
+
 def version_tuple(value: str) -> tuple[int, ...]:
     parts = re.split(r"[^0-9]+", value.strip())
     return tuple(int(part) for part in parts if part.isdigit())
@@ -249,6 +303,27 @@ def quick_file_fingerprint(path: Path, size: int, sample_bytes: int = 1024 * 64)
             digest.update(handle.read(sample_bytes))
     digest.update(str(size).encode("ascii", errors="ignore"))
     return digest.hexdigest()
+
+
+def parse_timecode_seconds(value: str) -> float | None:
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except Exception:
+        pass
+    parts = raw.split(":")
+    if not parts or len(parts) > 3:
+        return None
+    try:
+        factors = [1.0, 60.0, 3600.0]
+        total = 0.0
+        for index, part in enumerate(reversed(parts)):
+            total += float(part) * factors[index]
+        return total
+    except Exception:
+        return None
 
 
 class OperationCanceledError(RuntimeError):
@@ -470,10 +545,12 @@ def vtt_to_srt(text: str) -> str:
 
 
 class HoverCard:
-    def __init__(self, widget: tk.Widget, text_provider, dark_mode_provider=None, delay_ms: int = 320):
+    def __init__(self, widget: tk.Widget, text_provider, dark_mode_provider=None, enabled_provider=None, font_provider=None, delay_ms: int = 320):
         self.widget = widget
         self.text_provider = text_provider
         self.dark_mode_provider = dark_mode_provider
+        self.enabled_provider = enabled_provider
+        self.font_provider = font_provider
         self.delay_ms = delay_ms
         self.tip_window: tk.Toplevel | None = None
         self.after_id: str | None = None
@@ -482,7 +559,18 @@ class HoverCard:
         widget.bind("<ButtonPress>", self._on_leave, add="+")
         widget.bind("<Motion>", self._on_motion, add="+")
 
+    def _is_enabled(self) -> bool:
+        if self.enabled_provider is None:
+            return True
+        try:
+            return bool(self.enabled_provider())
+        except Exception:
+            return True
+
     def _on_enter(self, _event=None) -> None:
+        if not self._is_enabled():
+            self._hide()
+            return
         self._schedule()
 
     def _on_leave(self, _event=None) -> None:
@@ -497,6 +585,9 @@ class HoverCard:
 
     def _schedule(self) -> None:
         self._cancel()
+        if not self._is_enabled():
+            self._hide()
+            return
         self.after_id = self.widget.after(self.delay_ms, self._show)
 
     def _cancel(self) -> None:
@@ -509,6 +600,9 @@ class HoverCard:
 
     def _show(self) -> None:
         self.after_id = None
+        if not self._is_enabled():
+            self._hide()
+            return
         if self.tip_window and self.tip_window.winfo_exists():
             return
         text = str(self.text_provider() or "").strip()
@@ -522,6 +616,7 @@ class HoverCard:
         bg = "#1B212A" if dark_mode else "#FFFDF4"
         fg = "#E8F1FF" if dark_mode else "#1A3555"
         border = "#3B4553" if dark_mode else "#D4DCE8"
+        font_value = self.font_provider() if self.font_provider else ("Segoe UI", 10)
 
         frame = tk.Frame(self.tip_window, bg=bg, bd=1, relief="solid", highlightthickness=1, highlightbackground=border)
         frame.pack(fill="both", expand=True)
@@ -535,7 +630,7 @@ class HoverCard:
             wraplength=470,
             padx=10,
             pady=8,
-            font=("Segoe UI", 9),
+            font=font_value,
         )
         label.pack(fill="both", expand=True)
 
@@ -547,6 +642,11 @@ class HoverCard:
         if self.tip_window and self.tip_window.winfo_exists():
             self.tip_window.destroy()
         self.tip_window = None
+
+    def refresh_enabled_state(self) -> None:
+        if not self._is_enabled():
+            self._cancel()
+            self._hide()
 
 
 @dataclass
@@ -717,6 +817,221 @@ class TaskEngine:
         if count > 0:
             return ["-threads", str(count)]
         return []
+
+    @staticmethod
+    def _normalized_image_format(source: Path, requested_format: str) -> str:
+        target_format = requested_format.strip().lower()
+        if target_format in {"", "keep", "source"}:
+            target_format = source.suffix.lower().lstrip(".")
+        aliases = {"jpeg": "jpg", "tif": "tiff"}
+        return aliases.get(target_format, target_format)
+
+    @staticmethod
+    def _audio_codec_args(target_format: str, bitrate: str) -> list[str]:
+        fmt = target_format.strip().lower()
+        if fmt == "mp3":
+            return ["-c:a", "libmp3lame", "-b:a", bitrate]
+        if fmt == "wav":
+            return ["-c:a", "pcm_s16le"]
+        if fmt == "flac":
+            return ["-c:a", "flac"]
+        if fmt == "ogg":
+            return ["-c:a", "libvorbis", "-b:a", bitrate]
+        if fmt == "m4a":
+            return ["-c:a", "aac", "-b:a", bitrate]
+        raise RuntimeError(f"Unsupported audio format: {target_format}")
+
+    def process_image_file(self, source: Path, output_dir: Path, options: dict[str, Any]) -> Path:
+        if Image is None:
+            raise RuntimeError("Pillow is not installed; cannot process image files.")
+        ensure_dir(output_dir)
+        target_format = self._normalized_image_format(source, str(options.get("target_format", "keep")))
+        if target_format not in IMAGE_FORMATS:
+            raise RuntimeError(f"Unsupported image target format: {target_format}")
+
+        out_path = output_dir / f"{source.stem}_image.{target_format}"
+        out_path = self._prepare_output_path(out_path, f"Processed image for {source.name}")
+        quality = max(1, min(100, int(options.get("quality", 92))))
+        sharpen_amount = max(0, min(300, int(options.get("sharpen", 0))))
+        max_width = max(0, int(options.get("max_width", 0)))
+        max_height = max(0, int(options.get("max_height", 0)))
+        resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS", getattr(Image, "LANCZOS", Image.BICUBIC))
+
+        with Image.open(source) as opened:
+            image = ImageOps.exif_transpose(opened) if ImageOps is not None else opened.copy()
+            if image is opened:
+                image = image.copy()
+            if max_width > 0 or max_height > 0:
+                width_limit = max_width if max_width > 0 else image.width
+                height_limit = max_height if max_height > 0 else image.height
+                image.thumbnail((max(1, width_limit), max(1, height_limit)), resampling)
+            if sharpen_amount > 0 and ImageFilter is not None:
+                image = image.filter(ImageFilter.UnsharpMask(radius=2, percent=max(50, sharpen_amount), threshold=3))
+
+            save_kwargs: dict[str, Any] = {}
+            if target_format == "jpg":
+                if "A" in image.getbands():
+                    flattened = Image.new("RGB", image.size, (255, 255, 255))
+                    flattened.paste(image, mask=image.getchannel("A"))
+                    image = flattened
+                elif image.mode not in {"RGB", "L"}:
+                    image = image.convert("RGB")
+                save_kwargs["quality"] = quality
+                save_kwargs["optimize"] = True
+            elif target_format == "webp":
+                save_kwargs["quality"] = quality
+                save_kwargs["method"] = 6
+            elif target_format == "png":
+                save_kwargs["optimize"] = True
+            elif target_format == "ico":
+                if image.mode not in {"RGBA", "RGB"}:
+                    image = image.convert("RGBA")
+                icon_size = max(16, min(256, max(image.size)))
+                if image.size != (icon_size, icon_size):
+                    image = image.resize((icon_size, icon_size), resampling)
+
+            format_name = {"jpg": "JPEG", "tiff": "TIFF", "ico": "ICO"}.get(target_format, target_format.upper())
+            image.save(out_path, format=format_name, **save_kwargs)
+        return out_path
+
+    def process_audio_file(self, source: Path, output_dir: Path, options: dict[str, Any]) -> Path:
+        ffmpeg = self.app.backends.ffmpeg
+        if not ffmpeg:
+            raise RuntimeError("FFmpeg is required for advanced audio processing and was not detected.")
+        ensure_dir(output_dir)
+        target_format = str(options.get("target_format", "mp3")).strip().lower()
+        bitrate = str(options.get("audio_bitrate", "192k")).strip() or "192k"
+        sample_rate = str(options.get("sample_rate", "keep")).strip().lower()
+        channels = str(options.get("channels", "keep")).strip().lower()
+        normalize = bool(options.get("normalize", False))
+        trim_silence = bool(options.get("trim_silence", False))
+
+        out_path = output_dir / f"{source.stem}_audio.{target_format}"
+        out_path = self._prepare_output_path(out_path, f"Processed audio for {source.name}")
+        cmd = [ffmpeg, *self._ffmpeg_thread_args(), "-y", "-i", str(source), "-vn"]
+        filters: list[str] = []
+        if normalize:
+            filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+        if trim_silence:
+            filters.append(
+                "silenceremove=start_periods=1:start_silence=0.25:start_threshold=-45dB:"
+                "stop_periods=1:stop_silence=0.25:stop_threshold=-45dB"
+            )
+        if filters:
+            cmd += ["-af", ",".join(filters)]
+        if sample_rate not in {"", "keep"}:
+            cmd += ["-ar", sample_rate]
+        if channels == "mono":
+            cmd += ["-ac", "1"]
+        elif channels == "stereo":
+            cmd += ["-ac", "2"]
+        cmd += self._audio_codec_args(target_format, bitrate)
+        cmd.append(str(out_path))
+        self.app.run_process(cmd)
+        return out_path
+
+    def process_video_file(self, source: Path, output_dir: Path, mode_key: str, options: dict[str, Any]) -> Path:
+        ffmpeg = self.app.backends.ffmpeg
+        if not ffmpeg:
+            raise RuntimeError("FFmpeg is required for advanced video processing and was not detected.")
+        ensure_dir(output_dir)
+
+        if mode_key == "remux":
+            container = str(options.get("container", "mp4")).strip().lower()
+            if container not in VIDEO_REMUX_FORMATS:
+                raise RuntimeError(f"Unsupported remux container: {container}")
+            out_path = output_dir / f"{source.stem}_remux.{container}"
+            out_path = self._prepare_output_path(out_path, f"Remuxed video for {source.name}")
+            cmd = [ffmpeg, *self._ffmpeg_thread_args(), "-y", "-i", str(source), "-c", "copy", str(out_path)]
+            self.app.run_process(cmd)
+            return out_path
+
+        if mode_key == "trim":
+            trim_container = str(options.get("trim_container", "keep")).strip().lower()
+            if trim_container in {"", "keep"}:
+                trim_container = source.suffix.lower().lstrip(".")
+            start_value = str(options.get("trim_start", "")).strip()
+            end_value = str(options.get("trim_end", "")).strip()
+            if not start_value and not end_value:
+                raise RuntimeError("Trim requires a start time, an end time, or both.")
+            out_path = output_dir / f"{source.stem}_trim.{trim_container}"
+            out_path = self._prepare_output_path(out_path, f"Trimmed video for {source.name}")
+            cmd = [ffmpeg, *self._ffmpeg_thread_args(), "-y"]
+            if start_value:
+                cmd += ["-ss", start_value]
+            cmd += ["-i", str(source)]
+            start_seconds = parse_timecode_seconds(start_value)
+            end_seconds = parse_timecode_seconds(end_value)
+            if start_value and end_value and start_seconds is not None and end_seconds is not None and end_seconds > start_seconds:
+                cmd += ["-t", f"{end_seconds - start_seconds:.3f}"]
+            elif end_value:
+                cmd += ["-to", end_value]
+            cmd += ["-c", "copy", str(out_path)]
+            self.app.run_process(cmd)
+            return out_path
+
+        if mode_key == "stream_prep":
+            preset_name = str(options.get("stream_preset_name", next(iter(VIDEO_STREAM_PRESETS)))).strip()
+            preset = VIDEO_STREAM_PRESETS.get(preset_name)
+            if preset is None:
+                raise RuntimeError(f"Unknown stream preset: {preset_name}")
+            video_preset = str(options.get("video_preset", "medium")).strip() or "medium"
+            video_crf = str(options.get("video_crf", 23)).strip() or "23"
+            out_path = output_dir / f"{source.stem}_{preset['suffix']}.mp4"
+            out_path = self._prepare_output_path(out_path, f"Stream-prepped video for {source.name}")
+            vf = (
+                f"scale=w={preset['width']}:h={preset['height']}:force_original_aspect_ratio=decrease,"
+                f"pad={preset['width']}:{preset['height']}:(ow-iw)/2:(oh-ih)/2:color=black,"
+                f"fps={preset['fps']}"
+            )
+            cmd = [
+                ffmpeg,
+                *self._ffmpeg_thread_args(),
+                "-y",
+                "-i",
+                str(source),
+                "-vf",
+                vf,
+                "-c:v",
+                "libx264",
+                "-preset",
+                video_preset,
+                "-crf",
+                video_crf,
+                "-pix_fmt",
+                "yuv420p",
+                "-b:v",
+                str(preset["video_bitrate"]),
+                "-maxrate",
+                str(preset["video_bitrate"]),
+                "-bufsize",
+                str(preset["video_bitrate"]).replace("k", "") + "k",
+                "-c:a",
+                "aac",
+                "-b:a",
+                str(preset["audio_bitrate"]),
+                "-ar",
+                "48000",
+                "-movflags",
+                "+faststart",
+                str(out_path),
+            ]
+            self.app.run_process(cmd)
+            return out_path
+
+        if mode_key == "thumbnail_sheet":
+            interval = str(options.get("thumb_interval", "15")).strip() or "15"
+            columns = max(1, int(options.get("thumb_columns", 4)))
+            rows = max(1, int(options.get("thumb_rows", 4)))
+            frame_width = max(120, int(options.get("thumb_width", 320)))
+            out_path = output_dir / f"{source.stem}_sheet.png"
+            out_path = self._prepare_output_path(out_path, f"Thumbnail sheet for {source.name}")
+            vf = f"fps=1/{interval},scale={frame_width}:-1,tile={columns}x{rows}"
+            cmd = [ffmpeg, *self._ffmpeg_thread_args(), "-y", "-i", str(source), "-vf", vf, "-frames:v", "1", str(out_path)]
+            self.app.run_process(cmd)
+            return out_path
+
+        raise RuntimeError(f"Unknown advanced video mode: {mode_key}")
 
     def convert_file(self, source: Path, output_dir: Path, target_format: str, options: dict[str, Any]) -> Path:
         target_format = target_format.lower()
@@ -1085,6 +1400,7 @@ class TaskEngine:
 class SuiteApp:
     def __init__(self, root: tk.Tk):
         self.root = root
+        self.root.withdraw()
         self.root.title(APP_TITLE)
         min_width, min_height = self._preferred_min_window_size()
         self.root.minsize(min_width, min_height)
@@ -1116,6 +1432,7 @@ class SuiteApp:
         self.top_notebook: ttk.Notebook | None = None
         self.notebook: ttk.Notebook | None = None
         self.workspace_tab: ttk.Frame | None = None
+        self.backend_corner_button: ttk.Button | None = None
         self.drag_drop_enabled = False
         self._last_drop_signature: tuple[tuple[str, ...], float] | None = None
         self.backend_hover_cards: list[HoverCard] = []
@@ -1129,7 +1446,6 @@ class SuiteApp:
         self.backends = BackendRegistry.detect()
         self.engine = TaskEngine(self)
 
-        self.root.withdraw()
         if not self.settings.get("first_run_done", False):
             self._run_first_run_setup_wizard()
 
@@ -1141,6 +1457,7 @@ class SuiteApp:
         if bool(self.fullscreen_var.get()) and bool(self.borderless_max_var.get()):
             self.borderless_max_var.set(False)
         self._set_backend_summary_status()
+        self._refresh_hover_tooltip_preferences()
         self.root.after(100, self._poll_ui_queue)
         show_startup_animation = bool(self.settings.get("show_startup_animation", True))
         if bool(self.settings.get("check_updates_on_startup", True)):
@@ -1172,8 +1489,12 @@ class SuiteApp:
         return {
             "first_run_done": False,
             "dark_mode": False,
+            "high_contrast_mode": False,
             "fullscreen": False,
             "borderless_maximized": False,
+            "reduce_motion": False,
+            "ui_scale_percent": 100,
+            "use_hover_tooltips": False,
             "output_folder": str(default_output),
             "check_updates_on_startup": True,
             "prompt_backend_install_on_startup": True,
@@ -1227,6 +1548,7 @@ class SuiteApp:
         dark_mode_var = BooleanVar(value=bool(self.settings.get("dark_mode", False)))
         fullscreen_var = BooleanVar(value=bool(self.settings.get("fullscreen", False)))
         borderless_var = BooleanVar(value=bool(self.settings.get("borderless_maximized", False)))
+        hover_tooltips_var = BooleanVar(value=bool(self.settings.get("use_hover_tooltips", False)))
         update_check_var = BooleanVar(value=bool(self.settings.get("check_updates_on_startup", True)))
         backend_prompt_var = BooleanVar(value=bool(self.settings.get("prompt_backend_install_on_startup", True)))
         startup_animation_var = BooleanVar(value=bool(self.settings.get("show_startup_animation", True)))
@@ -1238,7 +1560,7 @@ class SuiteApp:
         outer = ttk.Frame(wizard, padding=14)
         outer.pack(fill="both", expand=True)
 
-        ttk.Label(outer, text="Welcome to Universal Conversion Hub (UCH)", font=("Segoe UI Semibold", 14)).pack(anchor="w")
+        ttk.Label(outer, text="Welcome to Universal Conversion Hub (UCH)", font=self._font(14, semibold=True)).pack(anchor="w")
         ttk.Label(
             outer,
             text="Set your defaults now. You can change them later from File -> Settings.",
@@ -1275,7 +1597,7 @@ class SuiteApp:
 
         ttk.Label(
             outer,
-            text='Manifest example: {"latest_version":"0.5.0","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Manifest example: {"latest_version":"0.6.5","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=590,
             justify="left",
@@ -1337,16 +1659,47 @@ class SuiteApp:
     def _apply_window_icon(self) -> None:
         self._apply_window_icon_to(self.root)
 
+    def _ui_scale_factor(self) -> float:
+        try:
+            percent = float(self.settings.get("ui_scale_percent", 100))
+        except Exception:
+            percent = 100.0
+        return max(0.9, min(1.8, percent / 100.0))
+
+    def _scaled(self, value: int, minimum: int = 1) -> int:
+        return max(minimum, int(round(float(value) * self._ui_scale_factor())))
+
+    def _font(self, size: int, semibold: bool = False, bold: bool = False, underline: bool = False):
+        family = "Segoe UI Semibold" if semibold else "Segoe UI"
+        font_parts: list[Any] = [family, self._scaled(size)]
+        if bold:
+            font_parts.append("bold")
+        if underline:
+            font_parts.append("underline")
+        return tuple(font_parts)
+
+    def _tooltip_font(self):
+        return self._font(10)
+
+    def high_contrast_enabled(self) -> bool:
+        return bool(self.settings.get("high_contrast_mode", False))
+
+    def reduced_motion_enabled(self) -> bool:
+        return bool(self.settings.get("reduce_motion", False))
+
     def _configure_styles(self) -> None:
-        self.root.option_add("*Font", "{Segoe UI} 10")
+        base_font_size = self._scaled(10)
+        self.root.option_add("*Font", f"{{Segoe UI}} {base_font_size}")
         self.style = ttk.Style(self.root)
         themes = set(self.style.theme_names())
         if "clam" in themes:
             self.style.theme_use("clam")
 
-        self.style.configure(".", font=("Segoe UI", 10))
-        self.style.configure("App.TButton", padding=(10, 6), font=("Segoe UI Semibold", 10))
-        self.style.configure("App.TNotebook", borderwidth=0, tabmargins=(0, 0, 0, 0))
+        self.style.configure(".", font=self._font(10))
+        self.style.configure("App.TButton", padding=(self._scaled(12), self._scaled(7)), font=self._font(10, semibold=True))
+        self.style.configure("PrimaryApp.TButton", padding=(self._scaled(12), self._scaled(7)), font=self._font(10, semibold=True))
+        self.style.configure("QuietApp.TButton", padding=(self._scaled(12), self._scaled(7)), font=self._font(10))
+        self.style.configure("App.TNotebook", borderwidth=0, tabmargins=(self._scaled(8), 0, 0, 0))
         try:
             self.style.configure("App.TNotebook", tabposition="n")
         except tk.TclError:
@@ -1354,17 +1707,17 @@ class SuiteApp:
             pass
         self.style.configure(
             "App.TNotebook.Tab",
-            padding=(16, 11),
-            font=("Segoe UI Semibold", 11),
+            padding=(self._scaled(14), self._scaled(10)),
+            font=self._font(10, semibold=True),
             background="#DCE5F1",
             foreground="#17304F",
             borderwidth=1,
         )
-        self.style.configure("TopTabs.TNotebook", borderwidth=0, tabmargins=(0, 0, 0, 0))
+        self.style.configure("TopTabs.TNotebook", borderwidth=0, tabmargins=(self._scaled(6), 0, 0, 0))
         self.style.configure(
             "TopTabs.TNotebook.Tab",
-            padding=(14, 8),
-            font=("Segoe UI Semibold", 11),
+            padding=(self._scaled(18), self._scaled(10)),
+            font=self._font(10, semibold=True),
             background="#DCE5F1",
             foreground="#17304F",
             borderwidth=1,
@@ -1373,19 +1726,27 @@ class SuiteApp:
 
     def _theme_palette(self, dark_mode: bool) -> dict[str, str]:
         if dark_mode:
-            return {
+            palette = {
                 "window_bg": "#10151C",
+                "surface_bg": "#121A23",
+                "surface_alt_bg": "#0D141D",
                 "card_bg": "#171F29",
                 "card_border": "#2D3A49",
                 "title_fg": "#F2F7FF",
                 "subtitle_fg": "#C7D4E6",
                 "meta_fg": "#E4EEFB",
+                "muted_fg": "#9FB1C8",
                 "status_bg": "#0C1117",
                 "status_fg": "#D6E4F5",
                 "button_bg": "#1D2835",
                 "button_fg": "#E7F0FE",
                 "button_active": "#2A3A4E",
                 "button_press": "#324861",
+                "accent_bg": "#3874B6",
+                "accent_fg": "#F8FBFF",
+                "accent_active": "#4A86C9",
+                "accent_press": "#2C629C",
+                "accent_soft_bg": "#203246",
                 "input_bg": "#111923",
                 "input_fg": "#F1F6FF",
                 "input_border": "#304153",
@@ -1408,19 +1769,28 @@ class SuiteApp:
                 "backend_detected_fg": "#A8D5FF",
                 "backend_missing_fg": "#FFB178",
             }
-        return {
+        else:
+            palette = {
             "window_bg": "#EEF2F8",
+            "surface_bg": "#F5F8FC",
+            "surface_alt_bg": "#E6ECF5",
             "card_bg": "#FFFFFF",
             "card_border": "#CFD8E6",
             "title_fg": "#0B2440",
             "subtitle_fg": "#405368",
             "meta_fg": "#1A3555",
+            "muted_fg": "#5A6C84",
             "status_bg": "#DCE4EF",
             "status_fg": "#163150",
             "button_bg": "#F8FBFF",
             "button_fg": "#17304F",
             "button_active": "#E8EEF8",
             "button_press": "#DDE6F4",
+            "accent_bg": "#2D69A8",
+            "accent_fg": "#FFFFFF",
+            "accent_active": "#3D79B8",
+            "accent_press": "#23598E",
+            "accent_soft_bg": "#E7EEF8",
             "input_bg": "#FFFFFF",
             "input_fg": "#10253F",
             "input_border": "#B8C7DC",
@@ -1443,6 +1813,79 @@ class SuiteApp:
             "backend_detected_fg": "#005A9E",
             "backend_missing_fg": "#B42318",
         }
+        if self.high_contrast_enabled():
+            if dark_mode:
+                palette.update(
+                    {
+                        "window_bg": "#090E14",
+                        "surface_bg": "#0E1620",
+                        "surface_alt_bg": "#0B121A",
+                        "card_bg": "#121C28",
+                        "card_border": "#4D627C",
+                        "title_fg": "#FFFFFF",
+                        "subtitle_fg": "#E1EEFF",
+                        "meta_fg": "#F3F8FF",
+                        "muted_fg": "#CBDCF1",
+                        "status_bg": "#070B10",
+                        "status_fg": "#F3F8FF",
+                        "button_bg": "#162231",
+                        "button_fg": "#F5FAFF",
+                        "button_active": "#233448",
+                        "button_press": "#2C425B",
+                        "accent_bg": "#4B9CFF",
+                        "accent_active": "#67ADFF",
+                        "accent_press": "#337FD8",
+                        "accent_soft_bg": "#17365A",
+                        "input_bg": "#0D151F",
+                        "input_fg": "#FFFFFF",
+                        "input_border": "#5D7DA2",
+                        "select_bg": "#4B9CFF",
+                        "tree_header_bg": "#24374A",
+                        "tree_header_fg": "#FFFFFF",
+                        "progress_bg": "#72B6FF",
+                        "progress_trough": "#0A121A",
+                        "log_bg": "#0A1118",
+                        "log_fg": "#FFFFFF",
+                        "log_border": "#4D627C",
+                        "backend_detected_fg": "#BDE0FF",
+                        "backend_missing_fg": "#FFC58A",
+                    }
+                )
+            else:
+                palette.update(
+                    {
+                        "window_bg": "#F8FBFF",
+                        "surface_bg": "#FFFFFF",
+                        "surface_alt_bg": "#EFF4FB",
+                        "card_bg": "#FFFFFF",
+                        "card_border": "#889BB3",
+                        "title_fg": "#081C33",
+                        "subtitle_fg": "#1B3555",
+                        "meta_fg": "#0E2845",
+                        "muted_fg": "#324C6A",
+                        "status_bg": "#DCE7F4",
+                        "status_fg": "#0E2845",
+                        "button_bg": "#FFFFFF",
+                        "button_fg": "#0E2845",
+                        "button_active": "#E8F0FB",
+                        "button_press": "#DCE8F7",
+                        "accent_bg": "#155BA8",
+                        "accent_active": "#246ABB",
+                        "accent_press": "#0E4D90",
+                        "accent_soft_bg": "#D9E8F8",
+                        "input_fg": "#081C33",
+                        "input_border": "#7B91AF",
+                        "select_bg": "#155BA8",
+                        "tree_header_bg": "#DCE8F7",
+                        "tree_header_fg": "#0E2845",
+                        "progress_bg": "#1F6BBD",
+                        "progress_trough": "#DEE8F5",
+                        "log_bg": "#FFFFFF",
+                        "log_fg": "#081C33",
+                        "log_border": "#889BB3",
+                    }
+                )
+        return palette
 
     def _apply_theme(self, dark_mode: bool) -> None:
         palette = self._theme_palette(dark_mode)
@@ -1452,12 +1895,12 @@ class SuiteApp:
         self.root.option_add("*TCombobox*Listbox.selectBackground", palette["select_bg"])
         self.root.option_add("*TCombobox*Listbox.selectForeground", palette["select_fg"])
 
-        self.style.configure(".", font=("Segoe UI", 10), background=palette["window_bg"], foreground=palette["meta_fg"])
+        self.style.configure(".", font=self._font(10), background=palette["window_bg"], foreground=palette["meta_fg"])
         self.style.configure("TFrame", background=palette["window_bg"])
         self.style.configure("TLabel", background=palette["window_bg"], foreground=palette["meta_fg"])
         self.style.configure("TLabelframe", background=palette["card_bg"], borderwidth=1, relief="solid")
-        self.style.configure("TLabelframe.Label", background=palette["card_bg"], foreground=palette["meta_fg"], font=("Segoe UI Semibold", 11))
-        self.style.configure("TButton", background=palette["button_bg"], foreground=palette["button_fg"], borderwidth=1)
+        self.style.configure("TLabelframe.Label", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(11, semibold=True))
+        self.style.configure("TButton", background=palette["button_bg"], foreground=palette["button_fg"], borderwidth=1, focusthickness=0)
         self.style.map(
             "TButton",
             background=[("active", palette["button_active"]), ("pressed", palette["button_press"]), ("disabled", palette["window_bg"])],
@@ -1506,8 +1949,8 @@ class SuiteApp:
             fieldbackground=palette["input_bg"],
             foreground=palette["input_fg"],
             bordercolor=palette["input_border"],
-            rowheight=24,
-            font=("Segoe UI", 10),
+            rowheight=self._scaled(30),
+            font=self._font(10),
         )
         self.style.map("Treeview", background=[("selected", palette["select_bg"])], foreground=[("selected", palette["select_fg"])])
         self.style.configure(
@@ -1515,7 +1958,7 @@ class SuiteApp:
             background=palette["tree_header_bg"],
             foreground=palette["tree_header_fg"],
             relief="flat",
-            font=("Segoe UI Semibold", 10),
+            font=self._font(10, semibold=True),
         )
         self.style.map(
             "Treeview.Heading",
@@ -1534,43 +1977,80 @@ class SuiteApp:
         self.style.configure("TScale", background=palette["window_bg"], troughcolor=palette["progress_trough"])
 
         self.style.configure("App.TFrame", background=palette["window_bg"])
+        self.style.configure("Surface.TFrame", background=palette["surface_bg"])
+        self.style.configure("SurfaceInset.TFrame", background=palette["surface_alt_bg"])
         self.style.configure("Card.TFrame", background=palette["card_bg"])
         self.style.configure("HeaderCard.TFrame", background=palette["card_bg"])
-        self.style.configure("Card.TLabelframe", background=palette["card_bg"], borderwidth=1, relief="solid")
-        self.style.configure("Card.TLabelframe.Label", background=palette["card_bg"], foreground=palette["meta_fg"], font=("Segoe UI Semibold", 11))
-        self.style.configure("HeaderTitle.TLabel", background=palette["card_bg"], foreground=palette["title_fg"], font=("Segoe UI Semibold", 20))
-        self.style.configure("HeaderSubtitle.TLabel", background=palette["card_bg"], foreground=palette["subtitle_fg"], font=("Segoe UI", 11))
-        self.style.configure("HeaderMeta.TLabel", background=palette["card_bg"], foreground=palette["meta_fg"], font=("Segoe UI Semibold", 10))
+        self.style.configure("Card.TLabelframe", background=palette["card_bg"], borderwidth=1, relief="solid", bordercolor=palette["card_border"])
+        self.style.configure("Card.TLabelframe.Label", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(10, semibold=True))
+        self.style.configure("QuickGroup.TLabelframe", background=palette["card_bg"], borderwidth=1, relief="solid", bordercolor=palette["card_border"])
+        self.style.configure("QuickGroup.TLabelframe.Label", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(9, semibold=True))
+        self.style.configure("HeaderTitle.TLabel", background=palette["card_bg"], foreground=palette["title_fg"], font=self._font(18, semibold=True))
+        self.style.configure("HeaderSubtitle.TLabel", background=palette["card_bg"], foreground=palette["subtitle_fg"], font=self._font(10))
+        self.style.configure("HeaderMeta.TLabel", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(10, semibold=True))
+        self.style.configure("CardBody.TLabel", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(10))
+        self.style.configure("CardMuted.TLabel", background=palette["card_bg"], foreground=palette["muted_fg"], font=self._font(9))
+        self.style.configure("Badge.TLabel", background=palette["accent_soft_bg"], foreground=palette["tab_sel_fg"], font=self._font(9, semibold=True), padding=(self._scaled(8), self._scaled(4)))
         self.style.configure(
             "BackendDetectedLink.TLabel",
             background=palette["card_bg"],
             foreground=palette["backend_detected_fg"],
-            font=("Segoe UI Semibold", 10, "underline"),
+            font=self._font(10, semibold=True, underline=True),
         )
         self.style.configure(
             "BackendMissingLink.TLabel",
             background=palette["card_bg"],
             foreground=palette["backend_missing_fg"],
-            font=("Segoe UI Semibold", 10, "underline"),
+            font=self._font(10, semibold=True, underline=True),
         )
         self.style.configure("StatusBar.TFrame", background=palette["status_bg"])
-        self.style.configure("StatusLeft.TLabel", background=palette["status_bg"], foreground=palette["status_fg"], font=("Segoe UI", 10))
-        self.style.configure("StatusRight.TLabel", background=palette["status_bg"], foreground=palette["status_fg"], font=("Segoe UI", 10))
+        self.style.configure("StatusLeft.TLabel", background=palette["status_bg"], foreground=palette["status_fg"], font=self._font(10))
+        self.style.configure("StatusRight.TLabel", background=palette["status_bg"], foreground=palette["status_fg"], font=self._font(10))
         self.style.configure("App.TButton", background=palette["button_bg"], foreground=palette["button_fg"], borderwidth=1)
         self.style.map(
             "App.TButton",
             background=[("active", palette["button_active"]), ("pressed", palette["button_press"]), ("disabled", palette["window_bg"])],
             foreground=[("disabled", palette["subtitle_fg"])],
         )
-        self.style.configure("App.TNotebook", background=palette["notebook_bg"])
-        self.style.configure("App.TNotebook.Tab", background=palette["tab_bg"], foreground=palette["tab_fg"])
+        self.style.configure("PrimaryApp.TButton", background=palette["accent_bg"], foreground=palette["accent_fg"], borderwidth=1)
+        self.style.map(
+            "PrimaryApp.TButton",
+            background=[("active", palette["accent_active"]), ("pressed", palette["accent_press"]), ("disabled", palette["window_bg"])],
+            foreground=[("disabled", palette["subtitle_fg"])],
+        )
+        self.style.configure("QuietApp.TButton", background=palette["button_bg"], foreground=palette["button_fg"], borderwidth=1)
+        self.style.map(
+            "QuietApp.TButton",
+            background=[("active", palette["button_active"]), ("pressed", palette["button_press"]), ("disabled", palette["window_bg"])],
+            foreground=[("disabled", palette["subtitle_fg"])],
+        )
+        self.style.configure("Shell.TButton", background=palette["button_bg"], foreground=palette["button_fg"], borderwidth=1, padding=(self._scaled(8), self._scaled(4)))
+        self.style.map(
+            "Shell.TButton",
+            background=[("active", palette["button_active"]), ("pressed", palette["button_press"]), ("disabled", palette["window_bg"])],
+            foreground=[("disabled", palette["subtitle_fg"])],
+        )
+        self.style.configure("ShellPrimary.TButton", background=palette["accent_bg"], foreground=palette["accent_fg"], borderwidth=1, padding=(self._scaled(8), self._scaled(4)))
+        self.style.map(
+            "ShellPrimary.TButton",
+            background=[("active", palette["accent_active"]), ("pressed", palette["accent_press"]), ("disabled", palette["window_bg"])],
+            foreground=[("disabled", palette["subtitle_fg"])],
+        )
+        self.style.configure("CornerTab.TButton", background=palette["accent_soft_bg"], foreground=palette["meta_fg"], borderwidth=1, padding=(self._scaled(10), self._scaled(4)))
+        self.style.map(
+            "CornerTab.TButton",
+            background=[("active", palette["button_active"]), ("pressed", palette["button_press"]), ("disabled", palette["window_bg"])],
+            foreground=[("disabled", palette["subtitle_fg"])],
+        )
+        self.style.configure("App.TNotebook", background=palette["surface_bg"], borderwidth=0)
+        self.style.configure("App.TNotebook.Tab", background=palette["tab_bg"], foreground=palette["tab_fg"], borderwidth=1)
         self.style.map(
             "App.TNotebook.Tab",
             background=[("selected", palette["tab_sel_bg"]), ("active", palette["tab_active_bg"])],
             foreground=[("selected", palette["tab_sel_fg"]), ("active", palette["tab_active_fg"])],
         )
-        self.style.configure("TopTabs.TNotebook", background=palette["notebook_bg"])
-        self.style.configure("TopTabs.TNotebook.Tab", background=palette["tab_bg"], foreground=palette["tab_fg"])
+        self.style.configure("TopTabs.TNotebook", background=palette["surface_bg"], borderwidth=0)
+        self.style.configure("TopTabs.TNotebook.Tab", background=palette["tab_bg"], foreground=palette["tab_fg"], borderwidth=1)
         self.style.map(
             "TopTabs.TNotebook.Tab",
             background=[("selected", palette["tab_sel_bg"]), ("active", palette["tab_active_bg"])],
@@ -1601,6 +2081,7 @@ class SuiteApp:
                 widget.configure(
                     bg=palette["input_bg"],
                     fg=palette["input_fg"],
+                    font=self._font(10),
                     selectbackground=palette["select_bg"],
                     selectforeground=palette["select_fg"],
                     highlightbackground=palette["input_border"],
@@ -1613,6 +2094,7 @@ class SuiteApp:
                 widget.configure(
                     bg=palette["log_bg"],
                     fg=palette["log_fg"],
+                    font=self._font(10),
                     insertbackground=palette["log_fg"],
                     selectbackground=palette["select_bg"],
                     selectforeground=palette["select_fg"],
@@ -1624,6 +2106,7 @@ class SuiteApp:
                 widget.configure(
                     bg=palette["input_bg"],
                     fg=palette["input_fg"],
+                    font=self._font(10),
                     insertbackground=palette["input_fg"],
                     disabledbackground=palette["window_bg"],
                     disabledforeground=palette["subtitle_fg"],
@@ -1636,6 +2119,7 @@ class SuiteApp:
                 widget.configure(
                     bg=palette["input_bg"],
                     fg=palette["input_fg"],
+                    font=self._font(10),
                     insertbackground=palette["input_fg"],
                     buttonbackground=palette["button_bg"],
                     disabledbackground=palette["window_bg"],
@@ -1649,6 +2133,7 @@ class SuiteApp:
                 widget.configure(
                     bg=palette["window_bg"],
                     fg=palette["meta_fg"],
+                    font=self._font(10),
                     troughcolor=palette["progress_trough"],
                     activebackground=palette["button_active"],
                     highlightbackground=palette["window_bg"],
@@ -1838,86 +2323,76 @@ class SuiteApp:
         self.root.config(menu=menu)
 
     def _build_ui(self) -> None:
-        root_frame = ttk.Frame(self.root, style="App.TFrame", padding=12)
+        root_frame = ttk.Frame(self.root, style="App.TFrame", padding=(16, 14, 16, 12))
         root_frame.pack(fill="both", expand=True)
 
-        header_card = ttk.Frame(root_frame, style="HeaderCard.TFrame", padding=(16, 12))
+        header_card = ttk.Frame(root_frame, style="HeaderCard.TFrame", padding=(14, 10))
         header_card.pack(fill="x")
 
-        title_row = ttk.Frame(header_card, style="HeaderCard.TFrame")
-        title_row.pack(fill="x")
-        ttk.Label(title_row, text=APP_TITLE, style="HeaderTitle.TLabel").pack(side="left", anchor="w")
-        ttk.Label(title_row, text=f"v{APP_VERSION}", style="HeaderMeta.TLabel").pack(side="right", anchor="e", pady=(6, 0))
+        hero_row = ttk.Frame(header_card, style="HeaderCard.TFrame")
+        hero_row.pack(fill="x")
+        hero_row.columnconfigure(0, weight=1)
 
+        intro_col = ttk.Frame(hero_row, style="HeaderCard.TFrame")
+        intro_col.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        ttk.Label(intro_col, text=APP_TITLE, style="HeaderTitle.TLabel").pack(anchor="w")
         ttk.Label(
-            header_card,
-            text=(
-                "Modular file utility suite with production-style layout. "
-                "Use left-side module tabs for all workflows, with queue-based operations and backend-aware processing."
-            ),
+            intro_col,
+            text="Modular desktop workspace for conversion, extraction, metadata, archives, batch jobs, and analysis.",
             style="HeaderSubtitle.TLabel",
-            wraplength=1250,
-        ).pack(anchor="w", pady=(6, 10))
+            wraplength=980,
+            justify="left",
+        ).pack(anchor="w", pady=(4, 0))
 
-        quick_row = ttk.Frame(header_card, style="HeaderCard.TFrame")
-        quick_row.pack(fill="x")
-        ttk.Button(quick_row, text="Open Output Folder", style="App.TButton", command=self._open_output_folder).pack(side="left")
-        ttk.Button(quick_row, text="Toggle Dark Mode", style="App.TButton", command=self._toggle_dark_mode_button).pack(side="left", padx=(8, 0))
-        ttk.Button(quick_row, text="Toggle Borderless", style="App.TButton", command=self._toggle_borderless_button).pack(side="left", padx=(8, 0))
-        ttk.Button(quick_row, text="Toggle Fullscreen", style="App.TButton", command=self._toggle_fullscreen_button).pack(side="left", padx=(8, 0))
-        ttk.Button(quick_row, text="Settings", style="App.TButton", command=self._open_settings_dialog).pack(side="left", padx=(8, 0))
-        ttk.Button(quick_row, text="Check Updates", style="App.TButton", command=lambda: self._check_updates_in_background(interactive=True)).pack(side="left", padx=(8, 0))
-        ttk.Button(quick_row, text="How-To", style="App.TButton", command=self._open_how_to_window).pack(side="left", padx=(8, 0))
-        ttk.Button(quick_row, text="About", style="App.TButton", command=self._show_about).pack(side="left", padx=(8, 0))
+        meta_col = ttk.Frame(hero_row, style="HeaderCard.TFrame")
+        meta_col.grid(row=0, column=1, sticky="ne")
+        ttk.Label(meta_col, text=f"v{APP_VERSION}", style="Badge.TLabel").pack(anchor="e")
+        ttk.Label(meta_col, text="Module workflow unchanged", style="CardMuted.TLabel").pack(anchor="e", pady=(4, 0))
 
-        backend_box = ttk.LabelFrame(root_frame, text="Detected Backends", style="Card.TLabelframe")
-        backend_box.pack(fill="x", pady=(10, 10))
-        backend_rows = ttk.Frame(backend_box, style="Card.TFrame")
-        backend_rows.pack(fill="x", padx=10, pady=10)
+        quick_shell = ttk.Frame(root_frame, style="App.TFrame")
+        quick_shell.pack(fill="x", pady=(8, 0))
+        quick_shell.columnconfigure(0, weight=1)
+
+        self._build_action_group(
+            quick_shell,
+            0,
+            "Workspace",
+            [
+                ("Open Output Folder", self._open_output_folder, "ShellPrimary.TButton"),
+                ("Settings", self._open_settings_dialog, "Shell.TButton"),
+                ("Check Updates", lambda: self._check_updates_in_background(interactive=True), "Shell.TButton"),
+            ],
+        )
+
         self.backend_hover_cards = []
-        backends_per_row = 3
-        for index, (name, value) in enumerate(self.backends.as_rows()):
-            row = index // backends_per_row
-            base_col = (index % backends_per_row) * 2
-            ttk.Label(backend_rows, text=f"{name}:", style="HeaderMeta.TLabel", width=11).grid(
-                row=row,
-                column=base_col,
-                sticky="w",
-                padx=(0, 6),
-                pady=2,
-            )
-            is_detected = value != "Not found"
-            style_name = "BackendDetectedLink.TLabel" if is_detected else "BackendMissingLink.TLabel"
-            visible_value = self._backend_summary_display_text(value, max_chars=34)
-            value_label = ttk.Label(backend_rows, text=visible_value, style=style_name, cursor="hand2")
-            value_label.grid(
-                row=row,
-                column=base_col + 1,
-                sticky="w",
-                padx=(0, 20),
-                pady=2,
-            )
-            value_label.bind(
-                "<Button-1>",
-                lambda _event, backend_name=name, backend_value=value: self._on_backend_summary_clicked(backend_name, backend_value),
-            )
-            self.backend_hover_cards.append(
-                HoverCard(
-                    value_label,
-                    text_provider=lambda backend_name=name, backend_value=value: self._backend_hover_text(backend_name, backend_value),
-                    dark_mode_provider=lambda: bool(self.dark_mode_var.get()),
-                )
-            )
-
-        content_frame = ttk.Frame(root_frame, style="App.TFrame")
+        content_frame = ttk.Frame(root_frame, style="Surface.TFrame", padding=(10, 8, 10, 8))
         content_frame.pack(fill="both", expand=True)
+
+        corner_bar = ttk.Frame(content_frame, style="Surface.TFrame")
+        corner_bar.pack(fill="x", pady=(0, 4))
+        self.backend_corner_button = ttk.Button(
+            corner_bar,
+            text="Backends",
+            style="CornerTab.TButton",
+            command=lambda: self.select_tab("Backends / Links"),
+        )
+        self.backend_corner_button.pack(side="right")
+        self.backend_hover_cards.append(
+            HoverCard(
+                self.backend_corner_button,
+                text_provider=self._backend_corner_hover_text,
+                dark_mode_provider=self.dark_mode_var.get,
+                enabled_provider=self.hover_tooltips_enabled,
+                font_provider=self._tooltip_font,
+            )
+        )
 
         top_notebook = ttk.Notebook(content_frame, style="TopTabs.TNotebook")
         top_notebook.pack(fill="both", expand=True)
         top_notebook.enable_traversal()
         self.top_notebook = top_notebook
 
-        workspace_tab = ttk.Frame(top_notebook, style="App.TFrame")
+        workspace_tab = ttk.Frame(top_notebook, style="Surface.TFrame")
         top_notebook.add(workspace_tab, text="Workspace")
         self.workspace_tab = workspace_tab
 
@@ -1929,10 +2404,13 @@ class SuiteApp:
         self.tabs["Backends / Links"] = backend_links_tab
         top_notebook.add(backend_links_tab, text="Backends / Links")
 
-        activity_log_tab = ttk.Frame(top_notebook, style="App.TFrame")
+        activity_log_tab = ttk.Frame(top_notebook, style="Surface.TFrame", padding=10)
         top_notebook.add(activity_log_tab, text="Activity Log")
 
-        self.notebook = ttk.Notebook(workspace_tab, style="App.TNotebook")
+        workspace_shell = ttk.Frame(workspace_tab, style="Surface.TFrame", padding=(0, 10, 0, 0))
+        workspace_shell.pack(fill="both", expand=True)
+
+        self.notebook = ttk.Notebook(workspace_shell, style="App.TNotebook")
         self.notebook.pack(fill="both", expand=True)
         self.notebook.enable_traversal()
 
@@ -1942,9 +2420,9 @@ class SuiteApp:
             ("Extract", ExtractTab),
             ("Metadata", MetadataTab),
             ("PDF / Documents", DocumentsTab),
-            ("Images", ImagesRoadmapTab),
-            ("Audio", AudioRoadmapTab),
-            ("Video", VideoRoadmapTab),
+            ("Images", ImagesTab),
+            ("Audio", AudioTab),
+            ("Video", VideoTab),
             ("Archives", ArchivesTab),
             ("Rename / Organize", RenameOrganizeTab),
             ("Duplicate Finder", DuplicateFinderTab),
@@ -1967,6 +2445,7 @@ class SuiteApp:
         self.log_box = ScrolledText(log_frame, height=10, wrap="word")
         self.log_box.configure(relief="flat", highlightthickness=1)
         self.log_box.pack(fill="both", expand=True, padx=10, pady=10)
+
         self._apply_theme(bool(self.dark_mode_var.get()))
 
         status_bar = ttk.Frame(root_frame, style="StatusBar.TFrame")
@@ -1975,6 +2454,14 @@ class SuiteApp:
         ttk.Label(status_bar, textvariable=self.status_right_var, style="StatusRight.TLabel").pack(side="right", padx=(0, 10), pady=4)
 
         self.log("Suite ready.")
+
+    def _build_action_group(self, parent: ttk.Frame, column: int, title: str, actions: list[tuple[str, Any, str]]) -> None:
+        group = ttk.LabelFrame(parent, text=title, style="QuickGroup.TLabelframe")
+        group.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 10, 0))
+        body = ttk.Frame(group, style="Card.TFrame")
+        body.pack(fill="x", expand=True, padx=8, pady=8)
+        for index, (label, command, style_name) in enumerate(actions):
+            ttk.Button(body, text=label, style=style_name, command=command).pack(side="left", padx=(0 if index == 0 else 6, 0))
 
     def _setup_drag_and_drop(self) -> None:
         if os.name != "nt" or windnd is None:
@@ -2283,6 +2770,29 @@ class SuiteApp:
             "Click to open the install page."
         )
 
+    def hover_tooltips_enabled(self) -> bool:
+        return bool(self.settings.get("use_hover_tooltips", False))
+
+    def _backend_corner_hover_text(self) -> str:
+        rows = self.backends.as_rows()
+        total = len(rows)
+        available = sum(1 for _, value in rows if value != "Not found")
+        missing = total - available
+        return (
+            f"Backends / Links\n"
+            f"Detected: {available}/{total}\n"
+            f"Missing: {missing}\n\n"
+            "Open the Backends / Links tab to review detected paths, install sources, docs, and commands."
+        )
+
+    def _refresh_hover_tooltip_preferences(self) -> None:
+        for hover_card in list(self.backend_hover_cards):
+            hover_card.refresh_enabled_state()
+        for tab in self.tabs.values():
+            refresh = getattr(tab, "refresh_hover_tooltip_preference", None)
+            if callable(refresh):
+                refresh()
+
     def _open_backend_install_links(self, backend_names: list[str]) -> int:
         opened = 0
         for backend_name in backend_names:
@@ -2453,8 +2963,12 @@ class SuiteApp:
         output_var = StringVar(value=str(self.settings.get("output_folder", self.default_output_root)))
         update_url_var = StringVar(value=str(self.settings.get("update_manifest_url", "")))
         dark_mode_var = BooleanVar(value=bool(self.settings.get("dark_mode", False)))
+        high_contrast_var = BooleanVar(value=bool(self.settings.get("high_contrast_mode", False)))
         fullscreen_var = BooleanVar(value=bool(self.settings.get("fullscreen", False)))
         borderless_var = BooleanVar(value=bool(self.settings.get("borderless_maximized", False)))
+        reduce_motion_var = BooleanVar(value=bool(self.settings.get("reduce_motion", False)))
+        ui_scale_var = StringVar(value=str(int(self.settings.get("ui_scale_percent", 100))))
+        hover_tooltips_var = BooleanVar(value=bool(self.settings.get("use_hover_tooltips", False)))
         update_check_var = BooleanVar(value=bool(self.settings.get("check_updates_on_startup", True)))
         backend_prompt_var = BooleanVar(value=bool(self.settings.get("prompt_backend_install_on_startup", True)))
         startup_animation_var = BooleanVar(value=bool(self.settings.get("show_startup_animation", True)))
@@ -2469,7 +2983,7 @@ class SuiteApp:
         outer = ttk.Frame(dialog, padding=14)
         outer.pack(fill="both", expand=True)
 
-        ttk.Label(outer, text="Settings", font=("Segoe UI Semibold", 14)).pack(anchor="w")
+        ttk.Label(outer, text="Settings", font=self._font(14, semibold=True)).pack(anchor="w")
         ttk.Label(
             outer,
             text="Adjust startup, output, visual, and processing defaults for better stability and performance.",
@@ -2511,14 +3025,55 @@ class SuiteApp:
 
         ttk.Label(general_tab, text="Appearance and window mode:").pack(anchor="w", pady=(4, 0))
         ttk.Checkbutton(general_tab, text="Dark mode", variable=dark_mode_var).pack(anchor="w", pady=(2, 0))
+        ttk.Checkbutton(general_tab, text="High contrast mode", variable=high_contrast_var).pack(anchor="w")
         ttk.Checkbutton(general_tab, text="Start in fullscreen mode", variable=fullscreen_var).pack(anchor="w")
         ttk.Checkbutton(general_tab, text="Start in borderless maximized mode", variable=borderless_var).pack(anchor="w")
+
+        accessibility_row = ttk.Frame(general_tab, style="App.TFrame")
+        accessibility_row.pack(anchor="w", pady=(8, 0))
+        ttk.Label(accessibility_row, text="Interface scale (%):").pack(side="left")
+        ttk.Combobox(
+            accessibility_row,
+            textvariable=ui_scale_var,
+            values=["90", "100", "110", "125", "140", "160"],
+            state="readonly",
+            width=8,
+        ).pack(side="left", padx=(8, 12))
+        ttk.Checkbutton(
+            accessibility_row,
+            text="Reduce motion / skip startup animation effects",
+            variable=reduce_motion_var,
+        ).pack(side="left")
+        ttk.Checkbutton(
+            general_tab,
+            text="Use hover tooltips instead of always-visible helper text",
+            variable=hover_tooltips_var,
+        ).pack(anchor="w", pady=(2, 0))
+        ttk.Label(
+            general_tab,
+            text="Scale, contrast, motion, and tooltip preferences are applied live after saving.",
+            foreground="#57687F",
+            wraplength=760,
+        ).pack(anchor="w", pady=(2, 0))
+
+        ttk.Label(general_tab, text="Window controls for this session:").pack(anchor="w", pady=(12, 0))
+        session_window_row = ttk.Frame(general_tab, style="App.TFrame")
+        session_window_row.pack(anchor="w", pady=(4, 0))
+        ttk.Button(session_window_row, text="Toggle Dark Mode", style="Shell.TButton", command=self._toggle_dark_mode_button).pack(side="left")
+        ttk.Button(session_window_row, text="Toggle Borderless", style="Shell.TButton", command=self._toggle_borderless_button).pack(side="left", padx=(6, 0))
+        ttk.Button(session_window_row, text="Toggle Fullscreen", style="Shell.TButton", command=self._toggle_fullscreen_button).pack(side="left", padx=(6, 0))
+
+        ttk.Label(general_tab, text="Help and reference:").pack(anchor="w", pady=(12, 0))
+        help_row = ttk.Frame(general_tab, style="App.TFrame")
+        help_row.pack(anchor="w", pady=(4, 0))
+        ttk.Button(help_row, text="How-To", style="Shell.TButton", command=self._open_how_to_window).pack(side="left")
+        ttk.Button(help_row, text="About", style="Shell.TButton", command=self._show_about).pack(side="left", padx=(6, 0))
 
         ttk.Label(general_tab, text="Update manifest URL (optional):").pack(anchor="w", pady=(10, 0))
         ttk.Entry(general_tab, textvariable=update_url_var).pack(fill="x", pady=(4, 0))
         ttk.Label(
             general_tab,
-            text='Example JSON: {"latest_version":"0.5.1","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Example JSON: {"latest_version":"0.6.5","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=760,
         ).pack(anchor="w", pady=(4, 0))
@@ -2604,8 +3159,12 @@ class SuiteApp:
             output_var.set(str(defaults["output_folder"]))
             update_url_var.set(str(defaults["update_manifest_url"]))
             dark_mode_var.set(bool(defaults["dark_mode"]))
+            high_contrast_var.set(bool(defaults["high_contrast_mode"]))
             fullscreen_var.set(bool(defaults["fullscreen"]))
             borderless_var.set(bool(defaults["borderless_maximized"]))
+            reduce_motion_var.set(bool(defaults["reduce_motion"]))
+            ui_scale_var.set(str(defaults["ui_scale_percent"]))
+            hover_tooltips_var.set(bool(defaults["use_hover_tooltips"]))
             update_check_var.set(bool(defaults["check_updates_on_startup"]))
             backend_prompt_var.set(bool(defaults["prompt_backend_install_on_startup"]))
             startup_animation_var.set(bool(defaults["show_startup_animation"]))
@@ -2630,6 +3189,15 @@ class SuiteApp:
                 return
 
             try:
+                ui_scale_percent = int(str(ui_scale_var.get()).strip().replace("%", ""))
+            except Exception:
+                messagebox.showerror(APP_TITLE, "Interface scale must be a whole number between 90 and 180.")
+                return
+            if ui_scale_percent < 90 or ui_scale_percent > 180:
+                messagebox.showerror(APP_TITLE, "Interface scale must be between 90 and 180.")
+                return
+
+            try:
                 ffmpeg_threads = int(ffmpeg_threads_var.get().strip())
             except Exception:
                 messagebox.showerror(APP_TITLE, "FFmpeg thread count must be an integer from 0 to 128.")
@@ -2649,8 +3217,12 @@ class SuiteApp:
 
             self.settings["output_folder"] = output_folder
             self.settings["dark_mode"] = bool(dark_mode_var.get())
+            self.settings["high_contrast_mode"] = bool(high_contrast_var.get())
             self.settings["fullscreen"] = bool(fullscreen_var.get())
             self.settings["borderless_maximized"] = bool(borderless_var.get())
+            self.settings["reduce_motion"] = bool(reduce_motion_var.get())
+            self.settings["ui_scale_percent"] = int(ui_scale_percent)
+            self.settings["use_hover_tooltips"] = bool(hover_tooltips_var.get())
             if self.settings["fullscreen"] and self.settings["borderless_maximized"]:
                 self.settings["borderless_maximized"] = False
                 status_var.set("Borderless was disabled because fullscreen is enabled.")
@@ -2671,9 +3243,10 @@ class SuiteApp:
             self.dark_mode_var.set(bool(self.settings["dark_mode"]))
             self.fullscreen_var.set(bool(self.settings["fullscreen"]))
             self.borderless_max_var.set(bool(self.settings["borderless_maximized"]))
-            self._apply_theme(bool(self.dark_mode_var.get()))
+            self._configure_styles()
             self._apply_window_mode_state()
             self._set_backend_summary_status()
+            self._refresh_hover_tooltip_preferences()
             self._save_settings()
             self.log("Settings updated from Settings dialog.")
             dialog.destroy()
@@ -2723,7 +3296,7 @@ class SuiteApp:
 
         outer = ttk.Frame(window, padding=12)
         outer.pack(fill="both", expand=True)
-        ttk.Label(outer, text=f"Help Guide ({how_to_path.name})", font=("Segoe UI Semibold", 12)).pack(anchor="w")
+        ttk.Label(outer, text=f"Help Guide ({how_to_path.name})", font=self._font(12, semibold=True)).pack(anchor="w")
         ttk.Label(outer, text=str(how_to_path), foreground="#57687F", wraplength=920).pack(anchor="w", pady=(2, 8))
 
         viewer = ScrolledText(outer, wrap="word")
@@ -2834,7 +3407,7 @@ class SuiteApp:
 
         outer = ttk.Frame(dialog, padding=14)
         outer.pack(fill="both", expand=True)
-        ttk.Label(outer, text="How do you want to open this app?", font=("Segoe UI Semibold", 13)).pack(anchor="w")
+        ttk.Label(outer, text="How do you want to open this app?", font=self._font(13, semibold=True)).pack(anchor="w")
         ttk.Label(
             outer,
             text=(
@@ -2927,46 +3500,53 @@ class SuiteApp:
             )
 
     def _show_startup_logo_animation(self, show_main_when_done: bool = True, modal: bool = False) -> None:
+        if self.reduced_motion_enabled():
+            if show_main_when_done:
+                self._show_main_window_after_startup()
+            return
+
         splash = tk.Toplevel(self.root)
+        splash.withdraw()
         splash.overrideredirect(True)
         splash.attributes("-topmost", True)
         splash.configure(bg="#0E1726")
         self._apply_window_icon_to(splash)
 
-        width, height = 560, 320
+        width, height = self._scaled(560), self._scaled(320)
         x = (splash.winfo_screenwidth() - width) // 2
         y = (splash.winfo_screenheight() - height) // 2
         splash.geometry(f"{width}x{height}+{x}+{y}")
 
         container = tk.Frame(splash, bg="#0E1726")
-        container.pack(fill="both", expand=True, padx=24, pady=20)
+        container.pack(fill="both", expand=True, padx=self._scaled(24), pady=self._scaled(20))
 
-        logo = tk.Canvas(container, width=140, height=120, bg="#0E1726", highlightthickness=0, bd=0)
-        logo.pack(pady=(6, 8))
-        logo.create_rectangle(30, 20, 90, 100, fill="#3DA4FF", outline="#70C8FF", width=2)
-        logo.create_polygon(90, 20, 110, 20, 110, 40, 90, 40, fill="#70C8FF", outline="#70C8FF")
-        line_a = logo.create_line(38, 58, 106, 58, fill="#DDF0FF", width=5, arrow="last", arrowshape=(10, 12, 5))
-        line_b = logo.create_line(106, 78, 38, 78, fill="#9FD6FF", width=5, arrow="last", arrowshape=(10, 12, 5))
-        orbit = logo.create_oval(64, 14, 74, 24, fill="#FDEB7C", outline="")
+        s = self._scaled
+        logo = tk.Canvas(container, width=s(140), height=s(120), bg="#0E1726", highlightthickness=0, bd=0)
+        logo.pack(pady=(self._scaled(6), self._scaled(8)))
+        logo.create_rectangle(s(30), s(20), s(90), s(100), fill="#3DA4FF", outline="#70C8FF", width=max(1, s(2)))
+        logo.create_polygon(s(90), s(20), s(110), s(20), s(110), s(40), s(90), s(40), fill="#70C8FF", outline="#70C8FF")
+        line_a = logo.create_line(s(38), s(58), s(106), s(58), fill="#DDF0FF", width=max(2, s(5)), arrow="last", arrowshape=(s(10), s(12), s(5)))
+        line_b = logo.create_line(s(106), s(78), s(38), s(78), fill="#9FD6FF", width=max(2, s(5)), arrow="last", arrowshape=(s(10), s(12), s(5)))
+        orbit = logo.create_oval(s(64), s(14), s(74), s(24), fill="#FDEB7C", outline="")
 
         tk.Label(
             container,
             text=APP_TITLE,
             bg="#0E1726",
             fg="#EAF4FF",
-            font=("Segoe UI Semibold", 15),
+            font=self._font(15, semibold=True),
         ).pack()
         tk.Label(
             container,
             text="Preparing modules, backends, and workspace...",
             bg="#0E1726",
             fg="#A5C3E6",
-            font=("Segoe UI", 10),
-        ).pack(pady=(4, 12))
+            font=self._font(10),
+        ).pack(pady=(self._scaled(4), self._scaled(12)))
 
-        progress = ttk.Progressbar(container, mode="determinate", maximum=100, length=440)
-        progress.pack(pady=(0, 8))
-        state_label = tk.Label(container, text="Loading UI...", bg="#0E1726", fg="#B9D4F1", font=("Segoe UI", 9))
+        progress = ttk.Progressbar(container, mode="determinate", maximum=100, length=self._scaled(440))
+        progress.pack(pady=(0, self._scaled(8)))
+        state_label = tk.Label(container, text="Loading UI...", bg="#0E1726", fg="#B9D4F1", font=self._font(9))
         state_label.pack()
 
         start = time.perf_counter()
@@ -2985,12 +3565,13 @@ class SuiteApp:
             progress.configure(value=ratio * 100.0)
             state_label.configure(text=f"Loading UI... {int(ratio * 100):d}%")
             angle = ratio * math.tau * spin_cycles
-            cx = 69 + 28 * math.cos(angle)
-            cy = 59 + 28 * math.sin(angle)
-            logo.coords(orbit, cx - 5, cy - 5, cx + 5, cy + 5)
-            shift = 4 * math.sin(ratio * math.tau * pulse_cycles)
-            logo.coords(line_a, 38 + shift, 58, 106 + shift, 58)
-            logo.coords(line_b, 106 - shift, 78, 38 - shift, 78)
+            cx = s(69) + s(28) * math.cos(angle)
+            cy = s(59) + s(28) * math.sin(angle)
+            orbit_radius = max(4, s(5))
+            logo.coords(orbit, cx - orbit_radius, cy - orbit_radius, cx + orbit_radius, cy + orbit_radius)
+            shift = s(4) * math.sin(ratio * math.tau * pulse_cycles)
+            logo.coords(line_a, s(38) + shift, s(58), s(106) + shift, s(58))
+            logo.coords(line_b, s(106) - shift, s(78), s(38) - shift, s(78))
             if ratio < 1.0:
                 splash.after(16, tick)
                 return
@@ -2998,6 +3579,9 @@ class SuiteApp:
             if show_main_when_done:
                 self._show_main_window_after_startup()
 
+        splash.update_idletasks()
+        splash.deiconify()
+        splash.lift()
         splash.after(20, tick)
         if modal:
             self.root.wait_window(splash)
@@ -3027,9 +3611,13 @@ class SuiteApp:
             screen_width = max(1, int(self.root.winfo_screenwidth()))
             screen_height = max(1, int(self.root.winfo_screenheight()))
         except Exception:
-            return (1180, 780)
-        min_width = min(1180, max(920, screen_width - 140))
-        min_height = min(780, max(660, screen_height - 180))
+            return (self._scaled(1180), self._scaled(780))
+        target_min_width = self._scaled(1180)
+        target_min_height = self._scaled(780)
+        floor_width = self._scaled(920)
+        floor_height = self._scaled(660)
+        min_width = min(target_min_width, max(floor_width, screen_width - self._scaled(140)))
+        min_height = min(target_min_height, max(floor_height, screen_height - self._scaled(180)))
         return (min_width, min_height)
 
     def _calculate_display_matched_geometry(self) -> str:
@@ -3090,6 +3678,8 @@ class SuiteApp:
         available = sum(1 for _, value in self.backends.as_rows() if value != "Not found")
         total = len(self.backends.as_rows())
         self.status_right_var.set(f"Backends {available}/{total}")
+        if self.backend_corner_button is not None:
+            self.backend_corner_button.configure(text=f"Backends {available}/{total}")
 
     def _check_updates_in_background(self, interactive: bool) -> None:
         if hasattr(self, "_update_thread") and self._update_thread and self._update_thread.is_alive():
@@ -3322,6 +3912,7 @@ class ModuleTab(ttk.Frame):
         super().__init__(master)
         self.app = app
         self.worker: threading.Thread | None = None
+        self.hover_cards: list[HoverCard] = []
 
     def log(self, message: str) -> None:
         self.app.log(f"{self.tab_name}: {message}")
@@ -3385,6 +3976,50 @@ class ModuleTab(ttk.Frame):
             if listbox.get(index) == target_str:
                 listbox.delete(index)
                 return
+
+    def add_hover_tooltip(self, widgets, text_provider) -> None:
+        if isinstance(widgets, (list, tuple, set)):
+            targets = list(widgets)
+        else:
+            targets = [widgets]
+        for widget in targets:
+            if widget is None:
+                continue
+            self.hover_cards.append(
+                HoverCard(
+                    widget,
+                    text_provider=text_provider,
+                    dark_mode_provider=self.app.dark_mode_var.get,
+                    enabled_provider=self.app.hover_tooltips_enabled,
+                    font_provider=self.app._tooltip_font,
+                )
+            )
+
+    def refresh_hover_tooltip_preference(self) -> None:
+        for hover_card in self.hover_cards:
+            hover_card.refresh_enabled_state()
+
+    def apply_inline_help_visibility(self, labels) -> None:
+        show_inline_help = not self.app.hover_tooltips_enabled()
+        for label in labels:
+            manager = str(label.winfo_manager())
+            if show_inline_help:
+                if manager == "grid":
+                    label.grid()
+                elif manager == "":
+                    pack_info = getattr(label, "_inline_pack_info", None)
+                    if pack_info is not None:
+                        options = dict(pack_info)
+                        if "in" in options:
+                            options["in_"] = options.pop("in")
+                        label.pack(**options)
+            else:
+                if manager == "grid":
+                    label.grid_remove()
+                elif manager == "pack":
+                    if not hasattr(label, "_inline_pack_info"):
+                        setattr(label, "_inline_pack_info", label.pack_info())
+                    label.pack_forget()
 
     def choose_output_dir(self, variable: StringVar, title: str) -> None:
         raw = filedialog.askdirectory(title=title)
@@ -3451,6 +4086,34 @@ class ModuleTab(ttk.Frame):
             self._set_drop_feedback("All dropped files were already in the queue.")
         return True
 
+    def _enqueue_paths_by_extension(
+        self,
+        files: list[Path],
+        listbox: tk.Listbox,
+        raw_paths: list[Path],
+        allowed_exts: set[str],
+        source_label: str,
+        kind_label: str,
+        expand_directories: bool = True,
+    ) -> bool:
+        candidates = self._collect_drop_files(raw_paths, expand_directories=expand_directories)
+        if not candidates:
+            self._set_drop_feedback("No valid files were found in the selected input.")
+            return False
+        matching = [path for path in candidates if path.suffix.lower() in allowed_exts]
+        unsupported_count = len(candidates) - len(matching)
+        if not matching:
+            self._set_drop_feedback(f"Only {kind_label} files are accepted here.")
+            return False
+        added, duplicates = self._append_paths_to_queue(files, listbox, matching)
+        message = f"Added {added} {kind_label} file(s) from {source_label}."
+        if duplicates:
+            message += f" Skipped {duplicates} duplicate(s)."
+        if unsupported_count:
+            message += f" Ignored {unsupported_count} unsupported file(s)."
+        self._set_drop_feedback(message)
+        return True
+
     def _add_dropped_mixed_paths(self, items: list[Path], listbox: tk.Listbox, dropped_paths: list[Path]) -> bool:
         candidates = [path for path in self._dedupe_paths(dropped_paths) if path.exists()]
         if not candidates:
@@ -3495,10 +4158,12 @@ class SuitePlanTab(ModuleTab):
             "- Rename / Organize\n"
             "- Checksums / Integrity\n"
             "- Subtitles\n\n"
-            "Phase 3 (Starter Included)\n"
+            "Phase 3 (Expanded)\n"
             "- Duplicate Finder\n"
             "- Storage Analyzer\n"
-            "- Media-focused image/audio/video modules with richer workflows\n\n"
+            "- Images: batch resize/export/sharpen workflow\n"
+            "- Audio: format/sample-rate/normalize/trim-silence workflow\n"
+            "- Video: remux/trim/stream-preset/thumbnail-sheet workflow\n\n"
             "Notes\n"
             "- External tools improve coverage (FFmpeg, Pandoc, LibreOffice, 7-Zip, ImageMagick).\n"
             "- Built-in Python handlers still provide useful fallback for many operations.\n"
@@ -3522,6 +4187,7 @@ class BackendLinksTab(ModuleTab):
         self.install_cmd_var = StringVar(value="")
         self.detected_path_var = StringVar(value="")
         self.status_var = StringVar(value="Select a backend to view links.")
+        self.inline_help_labels: list[ttk.Label] = []
         self._build()
         self._populate()
 
@@ -3529,23 +4195,56 @@ class BackendLinksTab(ModuleTab):
         outer = ttk.Frame(self, padding=10)
         outer.pack(fill="both", expand=True)
 
-        ttk.Label(
+        intro_label = ttk.Label(
             outer,
             text=(
                 "Backend links tab: official homepage, documentation, download page, and install command "
                 "for each backend used by the suite."
             ),
             wraplength=1180,
-        ).pack(anchor="w", pady=(0, 8))
+        )
+        intro_label.pack(anchor="w", pady=(0, 8))
+        self.inline_help_labels.append(intro_label)
 
         top_controls = ttk.Frame(outer)
         top_controls.pack(fill="x", pady=(0, 8))
-        ttk.Button(top_controls, text="Refresh Detection", command=self._populate).pack(side="left")
-        ttk.Button(top_controls, text="Open Homepage", command=lambda: self._open_url(self.homepage_var.get())).pack(side="left", padx=(8, 0))
-        ttk.Button(top_controls, text="Open Docs", command=lambda: self._open_url(self.docs_var.get())).pack(side="left", padx=(8, 0))
-        ttk.Button(top_controls, text="Open Download", command=lambda: self._open_url(self.download_var.get())).pack(side="left", padx=(8, 0))
-        ttk.Button(top_controls, text="Copy Install Command", command=self._copy_install_command).pack(side="left", padx=(8, 0))
-        ttk.Button(top_controls, text="Open Detected Path", command=self._open_detected_path).pack(side="left", padx=(8, 0))
+        refresh_button = ttk.Button(top_controls, text="Refresh Detection", command=self._populate)
+        refresh_button.pack(side="left")
+        open_homepage_button = ttk.Button(top_controls, text="Open Homepage", command=lambda: self._open_url(self.homepage_var.get()))
+        open_homepage_button.pack(side="left", padx=(8, 0))
+        open_docs_button = ttk.Button(top_controls, text="Open Docs", command=lambda: self._open_url(self.docs_var.get()))
+        open_docs_button.pack(side="left", padx=(8, 0))
+        open_download_button = ttk.Button(top_controls, text="Open Download", command=lambda: self._open_url(self.download_var.get()))
+        open_download_button.pack(side="left", padx=(8, 0))
+        copy_install_button = ttk.Button(top_controls, text="Copy Install Command", command=self._copy_install_command)
+        copy_install_button.pack(side="left", padx=(8, 0))
+        open_detected_button = ttk.Button(top_controls, text="Open Detected Path", command=self._open_detected_path)
+        open_detected_button.pack(side="left", padx=(8, 0))
+
+        self.add_hover_tooltip(
+            refresh_button,
+            lambda: "Re-scan the system for optional backends and refresh detected paths in this tab.",
+        )
+        self.add_hover_tooltip(
+            open_homepage_button,
+            lambda: self._backend_field_tooltip("Homepage", self.homepage_var, "Open the official project home page."),
+        )
+        self.add_hover_tooltip(
+            open_docs_button,
+            lambda: self._backend_field_tooltip("Docs", self.docs_var, "Open the documentation for the selected backend."),
+        )
+        self.add_hover_tooltip(
+            open_download_button,
+            lambda: self._backend_field_tooltip("Download", self.download_var, "Open the install or download page for the selected backend."),
+        )
+        self.add_hover_tooltip(
+            copy_install_button,
+            lambda: self._backend_field_tooltip("Install Command", self.install_cmd_var, "Copy the suggested install command for the selected backend."),
+        )
+        self.add_hover_tooltip(
+            open_detected_button,
+            lambda: self._backend_field_tooltip("Detected Path", self.detected_path_var, "Open the installed location for the selected backend."),
+        )
 
         split = ttk.Panedwindow(outer, orient="horizontal")
         split.pack(fill="both", expand=True)
@@ -3564,27 +4263,84 @@ class BackendLinksTab(ModuleTab):
         self.tree.column("path", width=520)
         self.tree.pack(fill="both", expand=True, padx=8, pady=8)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        self.add_hover_tooltip(
+            self.tree,
+            lambda: (
+                "Select a backend to review its links and detection status.\n"
+                "Detected entries point to installed paths. Missing entries still expose install sources."
+            ),
+        )
 
         form = ttk.Frame(right, padding=10)
         form.pack(fill="both", expand=True)
 
-        ttk.Label(form, text="Homepage").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
-        ttk.Entry(form, textvariable=self.homepage_var).grid(row=0, column=1, sticky="ew", pady=(0, 8))
+        homepage_label = ttk.Label(form, text="Homepage")
+        homepage_label.grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
+        homepage_entry = ttk.Entry(form, textvariable=self.homepage_var)
+        homepage_entry.grid(row=0, column=1, sticky="ew", pady=(0, 8))
 
-        ttk.Label(form, text="Docs").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
-        ttk.Entry(form, textvariable=self.docs_var).grid(row=1, column=1, sticky="ew", pady=(0, 8))
+        docs_label = ttk.Label(form, text="Docs")
+        docs_label.grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
+        docs_entry = ttk.Entry(form, textvariable=self.docs_var)
+        docs_entry.grid(row=1, column=1, sticky="ew", pady=(0, 8))
 
-        ttk.Label(form, text="Download").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
-        ttk.Entry(form, textvariable=self.download_var).grid(row=2, column=1, sticky="ew", pady=(0, 8))
+        download_label = ttk.Label(form, text="Download")
+        download_label.grid(row=2, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
+        download_entry = ttk.Entry(form, textvariable=self.download_var)
+        download_entry.grid(row=2, column=1, sticky="ew", pady=(0, 8))
 
-        ttk.Label(form, text="Install Command").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
-        ttk.Entry(form, textvariable=self.install_cmd_var).grid(row=3, column=1, sticky="ew", pady=(0, 8))
+        install_label = ttk.Label(form, text="Install Command")
+        install_label.grid(row=3, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
+        install_entry = ttk.Entry(form, textvariable=self.install_cmd_var)
+        install_entry.grid(row=3, column=1, sticky="ew", pady=(0, 8))
 
-        ttk.Label(form, text="Detected Path").grid(row=4, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
-        ttk.Entry(form, textvariable=self.detected_path_var).grid(row=4, column=1, sticky="ew", pady=(0, 8))
+        detected_label = ttk.Label(form, text="Detected Path")
+        detected_label.grid(row=4, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
+        detected_entry = ttk.Entry(form, textvariable=self.detected_path_var)
+        detected_entry.grid(row=4, column=1, sticky="ew", pady=(0, 8))
         form.columnconfigure(1, weight=1)
 
+        self.add_hover_tooltip(
+            [homepage_label, homepage_entry],
+            lambda: self._backend_field_tooltip("Homepage", self.homepage_var, "Official project home page."),
+        )
+        self.add_hover_tooltip(
+            [docs_label, docs_entry],
+            lambda: self._backend_field_tooltip("Docs", self.docs_var, "Documentation link for the selected backend."),
+        )
+        self.add_hover_tooltip(
+            [download_label, download_entry],
+            lambda: self._backend_field_tooltip("Download", self.download_var, "Download or install page for the selected backend."),
+        )
+        self.add_hover_tooltip(
+            [install_label, install_entry],
+            lambda: self._backend_field_tooltip("Install Command", self.install_cmd_var, "Suggested install command for the selected backend."),
+        )
+        self.add_hover_tooltip(
+            [detected_label, detected_entry],
+            lambda: self._backend_field_tooltip("Detected Path", self.detected_path_var, "Installed location of the selected backend."),
+        )
+
         ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(8, 0))
+        self.refresh_hover_tooltip_preference()
+
+    def _selected_backend_name(self) -> str:
+        selected = self.tree.selection()
+        if not selected:
+            return "Selected backend"
+        return str(self.tree.item(selected[0], "values")[0])
+
+    def _backend_field_tooltip(self, field_name: str, variable: StringVar, description: str) -> str:
+        current_value = variable.get().strip() or "Not available for the selected backend."
+        return (
+            f"{self._selected_backend_name()} - {field_name}\n"
+            f"{description}\n\n"
+            f"Current value: {current_value}"
+        )
+
+    def refresh_hover_tooltip_preference(self) -> None:
+        super().refresh_hover_tooltip_preference()
+        self.apply_inline_help_visibility(self.inline_help_labels)
 
     def _populate(self) -> None:
         self.app.backends = BackendRegistry.detect()
@@ -3687,6 +4443,7 @@ class ConvertTab(ModuleTab):
         self._progress_target = 0.0
         self.source_ext_lock: str | None = None
         self.target_format_combo: ttk.Combobox | None = None
+        self.inline_help_labels: list[ttk.Label] = []
         self.image_quality.trace_add("write", self._on_image_quality_var_changed)
         self.video_crf.trace_add("write", self._on_video_crf_var_changed)
         self._build()
@@ -3746,36 +4503,70 @@ class ConvertTab(ModuleTab):
             row=0, column=6, sticky="w", padx=(0, 10), pady=(10, 6)
         )
 
-        ttk.Label(options, text="Audio bitrate").grid(row=1, column=0, sticky="w", padx=(10, 6), pady=(6, 10))
-        ttk.Combobox(
+        audio_label = ttk.Label(options, text="Audio bitrate")
+        audio_label.grid(row=1, column=0, sticky="w", padx=(10, 6), pady=(6, 10))
+        audio_combo = ttk.Combobox(
             options,
             textvariable=self.audio_bitrate,
             values=["96k", "128k", "160k", "192k", "256k", "320k"],
             state="readonly",
             width=18,
-        ).grid(row=1, column=1, sticky="w", padx=(0, 12), pady=(6, 10))
+        )
+        audio_combo.grid(row=1, column=1, sticky="w", padx=(0, 12), pady=(6, 10))
+        audio_help_label = ttk.Label(
+            options,
+            text=AUDIO_BITRATE_HELP_TEXT,
+            justify="left",
+            wraplength=240,
+        )
+        audio_help_label.grid(row=2, column=0, columnspan=2, sticky="w", padx=(10, 12), pady=(0, 10))
+        self.inline_help_labels.append(audio_help_label)
+        self.add_hover_tooltip([audio_label, audio_combo], lambda: AUDIO_BITRATE_HELP_TEXT)
 
-        ttk.Label(options, text="Video preset").grid(row=1, column=2, sticky="w", padx=(12, 6), pady=(6, 10))
-        ttk.Combobox(
+        video_preset_label = ttk.Label(options, text="Video preset")
+        video_preset_label.grid(row=1, column=2, sticky="w", padx=(12, 6), pady=(6, 10))
+        video_preset_combo = ttk.Combobox(
             options,
             textvariable=self.video_preset,
             values=["ultrafast", "veryfast", "medium", "slow"],
             state="readonly",
             width=12,
-        ).grid(row=1, column=3, sticky="w", padx=(0, 10), pady=(6, 10))
+        )
+        video_preset_combo.grid(row=1, column=3, sticky="w", padx=(0, 10), pady=(6, 10))
+        video_preset_help_label = ttk.Label(
+            options,
+            text=VIDEO_PRESET_HELP_TEXT,
+            justify="left",
+            wraplength=250,
+        )
+        video_preset_help_label.grid(row=2, column=2, columnspan=2, sticky="w", padx=(12, 10), pady=(0, 10))
+        self.inline_help_labels.append(video_preset_help_label)
+        self.add_hover_tooltip([video_preset_label, video_preset_combo], lambda: VIDEO_PRESET_HELP_TEXT)
 
-        ttk.Label(options, text="Video CRF").grid(row=1, column=4, sticky="w", padx=(8, 6), pady=(6, 10))
-        ttk.Scale(
+        video_crf_label = ttk.Label(options, text="Video quality (CRF)")
+        video_crf_label.grid(row=1, column=4, sticky="w", padx=(8, 6), pady=(6, 10))
+        video_crf_scale = ttk.Scale(
             options,
             from_=18,
             to=35,
             variable=self.video_crf,
             orient="horizontal",
             command=self._on_video_crf_scale_changed,
-        ).grid(
+        )
+        video_crf_scale.grid(
             row=1, column=5, sticky="ew", padx=(0, 10), pady=(6, 10)
         )
-        ttk.Label(options, textvariable=self.video_crf_display, width=4).grid(row=1, column=6, sticky="w", padx=(0, 10), pady=(6, 10))
+        video_crf_value = ttk.Label(options, textvariable=self.video_crf_display, width=4)
+        video_crf_value.grid(row=1, column=6, sticky="w", padx=(0, 10), pady=(6, 10))
+        video_crf_help_label = ttk.Label(
+            options,
+            text=VIDEO_CRF_HELP_TEXT,
+            justify="left",
+            wraplength=300,
+        )
+        video_crf_help_label.grid(row=2, column=4, columnspan=3, sticky="w", padx=(8, 10), pady=(0, 10))
+        self.inline_help_labels.append(video_crf_help_label)
+        self.add_hover_tooltip([video_crf_label, video_crf_scale, video_crf_value], lambda: VIDEO_CRF_HELP_TEXT)
         options.columnconfigure(3, weight=1)
         options.columnconfigure(5, weight=1)
 
@@ -3793,6 +4584,11 @@ class ConvertTab(ModuleTab):
         ttk.Button(bottom, text="Convert Queue", command=self.convert_queue).pack(side="right")
 
         ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(6, 0))
+        self.refresh_hover_tooltip_preference()
+
+    def refresh_hover_tooltip_preference(self) -> None:
+        super().refresh_hover_tooltip_preference()
+        self.apply_inline_help_visibility(self.inline_help_labels)
 
     def export_preset(self) -> dict[str, Any]:
         return {
@@ -4137,7 +4933,7 @@ class CompressTab(ModuleTab):
 
     MODE_MAP = {
         "Images (quality)": "image_quality",
-        "Video (CRF)": "video_crf",
+        "Video (quality via CRF)": "video_crf",
         "Audio (bitrate)": "audio_bitrate",
         "Create ZIP (batch)": "zip_batch",
     }
@@ -4153,6 +4949,7 @@ class CompressTab(ModuleTab):
         self.video_preset_var = StringVar(value="medium")
         self.zip_level_var = IntVar(value=6)
         self.status_var = StringVar(value="Ready.")
+        self.inline_help_labels: list[ttk.Label] = []
         self._build()
 
     def _build(self) -> None:
@@ -4177,42 +4974,90 @@ class CompressTab(ModuleTab):
         options = ttk.LabelFrame(outer, text="Compression Settings")
         options.pack(fill="x")
 
-        ttk.Label(options, text="Mode").grid(row=0, column=0, sticky="w", padx=(10, 6), pady=(10, 6))
-        ttk.Combobox(options, textvariable=self.mode_var, values=list(self.MODE_MAP.keys()), state="readonly", width=22).grid(
+        mode_label = ttk.Label(options, text="Mode")
+        mode_label.grid(row=0, column=0, sticky="w", padx=(10, 6), pady=(10, 6))
+        mode_combo = ttk.Combobox(options, textvariable=self.mode_var, values=list(self.MODE_MAP.keys()), state="readonly", width=22)
+        mode_combo.grid(
             row=0, column=1, sticky="w", padx=(0, 12), pady=(10, 6)
         )
 
-        ttk.Label(options, text="Image quality").grid(row=0, column=2, sticky="w", padx=(10, 6), pady=(10, 6))
-        ttk.Scale(options, from_=10, to=100, variable=self.quality_var, orient="horizontal").grid(
+        image_quality_label = ttk.Label(options, text="Image quality")
+        image_quality_label.grid(row=0, column=2, sticky="w", padx=(10, 6), pady=(10, 6))
+        image_quality_scale = ttk.Scale(options, from_=10, to=100, variable=self.quality_var, orient="horizontal")
+        image_quality_scale.grid(
             row=0, column=3, sticky="ew", padx=(0, 10), pady=(10, 6)
         )
-        ttk.Label(options, text="Video CRF").grid(row=0, column=4, sticky="w", padx=(8, 6), pady=(10, 6))
-        ttk.Scale(options, from_=18, to=35, variable=self.crf_var, orient="horizontal").grid(
+        video_crf_label = ttk.Label(options, text="Video quality (CRF)")
+        video_crf_label.grid(row=0, column=4, sticky="w", padx=(8, 6), pady=(10, 6))
+        video_crf_scale = ttk.Scale(options, from_=18, to=35, variable=self.crf_var, orient="horizontal")
+        video_crf_scale.grid(
             row=0, column=5, sticky="ew", padx=(0, 10), pady=(10, 6)
         )
+        self.add_hover_tooltip([video_crf_label, video_crf_scale], lambda: VIDEO_CRF_HELP_TEXT)
 
-        ttk.Label(options, text="Audio bitrate").grid(row=1, column=0, sticky="w", padx=(10, 6), pady=(6, 10))
-        ttk.Combobox(
+        audio_label = ttk.Label(options, text="Audio bitrate")
+        audio_label.grid(row=1, column=0, sticky="w", padx=(10, 6), pady=(6, 10))
+        audio_combo = ttk.Combobox(
             options,
             textvariable=self.bitrate_var,
             values=["96k", "128k", "160k", "192k", "256k", "320k"],
             state="readonly",
             width=12,
-        ).grid(row=1, column=1, sticky="w", padx=(0, 12), pady=(6, 10))
+        )
+        audio_combo.grid(row=1, column=1, sticky="w", padx=(0, 12), pady=(6, 10))
+        audio_help_label = ttk.Label(
+            options,
+            text=AUDIO_BITRATE_HELP_TEXT,
+            justify="left",
+            wraplength=240,
+        )
+        audio_help_label.grid(row=2, column=0, columnspan=2, sticky="w", padx=(10, 12), pady=(0, 10))
+        self.inline_help_labels.append(audio_help_label)
+        self.add_hover_tooltip([audio_label, audio_combo], lambda: AUDIO_BITRATE_HELP_TEXT)
 
-        ttk.Label(options, text="Video preset").grid(row=1, column=2, sticky="w", padx=(10, 6), pady=(6, 10))
-        ttk.Combobox(
+        video_preset_label = ttk.Label(options, text="Video preset")
+        video_preset_label.grid(row=1, column=2, sticky="w", padx=(10, 6), pady=(6, 10))
+        video_preset_combo = ttk.Combobox(
             options,
             textvariable=self.video_preset_var,
             values=["ultrafast", "veryfast", "medium", "slow"],
             state="readonly",
             width=12,
-        ).grid(row=1, column=3, sticky="w", padx=(0, 12), pady=(6, 10))
+        )
+        video_preset_combo.grid(row=1, column=3, sticky="w", padx=(0, 12), pady=(6, 10))
+        video_preset_help_label = ttk.Label(
+            options,
+            text=VIDEO_PRESET_HELP_TEXT,
+            justify="left",
+            wraplength=250,
+        )
+        video_preset_help_label.grid(row=2, column=2, columnspan=2, sticky="w", padx=(10, 10), pady=(0, 10))
+        self.inline_help_labels.append(video_preset_help_label)
+        self.add_hover_tooltip([video_preset_label, video_preset_combo], lambda: VIDEO_PRESET_HELP_TEXT)
 
-        ttk.Label(options, text="ZIP level").grid(row=1, column=4, sticky="w", padx=(10, 6), pady=(6, 10))
-        ttk.Scale(options, from_=1, to=9, variable=self.zip_level_var, orient="horizontal").grid(
+        zip_level_label = ttk.Label(options, text="ZIP level")
+        zip_level_label.grid(row=1, column=4, sticky="w", padx=(10, 6), pady=(6, 10))
+        zip_level_scale = ttk.Scale(options, from_=1, to=9, variable=self.zip_level_var, orient="horizontal")
+        zip_level_scale.grid(
             row=1, column=5, sticky="ew", padx=(0, 10), pady=(6, 10)
         )
+        zip_level_help_label = ttk.Label(
+            options,
+            text=ZIP_LEVEL_HELP_TEXT,
+            justify="left",
+            wraplength=300,
+        )
+        zip_level_help_label.grid(row=2, column=4, columnspan=2, sticky="w", padx=(10, 10), pady=(0, 10))
+        self.inline_help_labels.append(zip_level_help_label)
+        self.add_hover_tooltip([zip_level_label, zip_level_scale], lambda: ZIP_LEVEL_HELP_TEXT)
+        video_crf_help_label = ttk.Label(
+            options,
+            text=VIDEO_CRF_HELP_TEXT,
+            justify="left",
+            wraplength=540,
+        )
+        video_crf_help_label.grid(row=3, column=2, columnspan=4, sticky="w", padx=(10, 10), pady=(0, 10))
+        self.inline_help_labels.append(video_crf_help_label)
         options.columnconfigure(3, weight=1)
         options.columnconfigure(5, weight=1)
 
@@ -4228,6 +5073,11 @@ class CompressTab(ModuleTab):
         self.progress.pack(side="left", fill="x", expand=True, padx=(0, 10))
         ttk.Button(bottom, text="Run Compression", command=self.run_compress).pack(side="right")
         ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(6, 0))
+        self.refresh_hover_tooltip_preference()
+
+    def refresh_hover_tooltip_preference(self) -> None:
+        super().refresh_hover_tooltip_preference()
+        self.apply_inline_help_visibility(self.inline_help_labels)
 
     def export_preset(self) -> dict[str, Any]:
         return {
@@ -4325,8 +5175,8 @@ class ExtractTab(ModuleTab):
 
         controls = ttk.Frame(outer)
         controls.pack(fill="x")
-        ttk.Button(controls, text="Add Files", command=lambda: self.add_files_to_queue(self.files, self.listbox)).pack(side="left")
-        ttk.Button(controls, text="Add Folder", command=lambda: self.add_folder_to_queue(self.files, self.listbox)).pack(side="left", padx=6)
+        ttk.Button(controls, text="Add Files", command=self._add_media_files).pack(side="left")
+        ttk.Button(controls, text="Add Folder", command=self._add_media_folder).pack(side="left", padx=6)
         ttk.Button(controls, text="Remove Selected", command=lambda: self.remove_selected(self.files, self.listbox)).pack(side="left")
         ttk.Button(controls, text="Clear", command=lambda: self.clear_queue(self.files, self.listbox)).pack(side="left", padx=6)
 
@@ -4388,12 +5238,89 @@ class ExtractTab(ModuleTab):
             self.subtitle_index_var.set(int(payload["subtitle_index"]))
 
     def handle_external_drop(self, paths: list[Path]) -> bool:
-        return self._add_dropped_file_paths(self.files, self.listbox, paths, expand_directories=True)
+        return self._enqueue_media_candidates(paths, source_label="dropped selection")
+
+    def _route_archives_to_archives_tab(self, archive_paths: list[Path]) -> None:
+        if not archive_paths:
+            return
+        archive_tab = self.app.tabs.get("Archives")
+        if archive_tab and hasattr(archive_tab, "handle_external_drop"):
+            self.app.select_tab("Archives")
+            handled = bool(archive_tab.handle_external_drop(archive_paths))
+            if handled:
+                self.app.status_left_var.set("Archive files were redirected to the Archives tab.")
+
+    def _enqueue_media_candidates(self, raw_paths: list[Path], source_label: str) -> bool:
+        candidates = self._collect_drop_files(raw_paths, expand_directories=True)
+        if not candidates:
+            self._set_drop_feedback("No valid files were found in the dropped selection.")
+            return False
+        media_files = [path for path in candidates if path.suffix.lower() in MEDIA_EXTS]
+        archive_files = [path for path in candidates if is_archive_input_path(path)]
+        unsupported_count = len(candidates) - len(media_files) - len(archive_files)
+
+        if archive_files:
+            self._route_archives_to_archives_tab(archive_files)
+
+        handled = False
+        if media_files:
+            added, duplicates = self._append_paths_to_queue(self.files, self.listbox, media_files)
+            handled = True
+            message = f"Added {added} media file(s) from {source_label}."
+            if duplicates:
+                message += f" Skipped {duplicates} duplicate(s)."
+            if archive_files:
+                message += f" Redirected {len(archive_files)} archive file(s) to Archives."
+            if unsupported_count:
+                message += f" Ignored {unsupported_count} unsupported file(s)."
+            self._set_drop_feedback(message)
+            return True
+
+        if archive_files:
+            handled = True
+            message = f"Redirected {len(archive_files)} archive file(s) to Archives."
+            if unsupported_count:
+                message += f" Ignored {unsupported_count} unsupported file(s)."
+            self._set_drop_feedback(message)
+            return True
+
+        if unsupported_count:
+            self._set_drop_feedback("Only audio/video media files are accepted in Extract.")
+        return handled
+
+    def _add_media_files(self) -> None:
+        chosen = filedialog.askopenfilenames(title="Select media files")
+        if chosen:
+            self._enqueue_media_candidates([Path(raw) for raw in chosen], source_label="selection")
+
+    def _add_media_folder(self) -> None:
+        raw = filedialog.askdirectory(title="Select folder")
+        if raw:
+            self._enqueue_media_candidates([Path(raw)], source_label="folder")
 
     def run_extract(self) -> None:
         if not self.files:
             messagebox.showwarning(APP_TITLE, "Add files before extracting.")
             return
+        invalid_files = [path for path in self.files if path.suffix.lower() not in MEDIA_EXTS]
+        if invalid_files:
+            archive_files = [path for path in invalid_files if is_archive_input_path(path)]
+            if archive_files:
+                self._route_archives_to_archives_tab(archive_files)
+                for item in archive_files:
+                    self.remove_path_from_queue(self.files, self.listbox, item)
+            remaining_invalid = [path for path in invalid_files if path not in archive_files]
+            if remaining_invalid:
+                preview = ", ".join(path.name for path in remaining_invalid[:4])
+                messagebox.showwarning(
+                    APP_TITLE,
+                    "Extract accepts audio/video media files only.\n\n"
+                    f"Unsupported item(s): {preview}",
+                )
+                return
+            if not self.files:
+                self.status_var.set("Archive files were moved to the Archives tab.")
+                return
         out_dir = Path(self.output_dir.get().strip())
         ensure_dir(out_dir)
         preset = self.export_preset()
@@ -4613,7 +5540,7 @@ class RoadmapModuleTab(ModuleTab):
     def _build(self) -> None:
         body = ttk.Frame(self, padding=14)
         body.pack(fill="both", expand=True)
-        ttk.Label(body, text=f"{self.module_name} Module", font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        ttk.Label(body, text=f"{self.module_name} Module", font=self.app._font(13, bold=True)).pack(anchor="w")
         ttk.Label(body, text=f"Current status: starter scaffold ({self.phase})", foreground="#1f4f8a").pack(anchor="w", pady=(2, 10))
         ttk.Label(body, text=self.note, wraplength=1180).pack(anchor="w", pady=(0, 10))
 
@@ -4691,6 +5618,638 @@ class VideoRoadmapTab(RoadmapModuleTab):
                 "Streaming presets for YouTube, Shorts, TikTok, Twitch",
             ],
         )
+
+
+class ImagesTab(ModuleTab):
+    tab_name = "Images"
+
+    def __init__(self, master, app: SuiteApp):
+        super().__init__(master, app)
+        self.files: list[Path] = []
+        self.target_format = StringVar(value="keep")
+        self.output_dir = StringVar(value=str(self.app.default_output_root / "images"))
+        self.max_width_var = IntVar(value=0)
+        self.max_height_var = IntVar(value=0)
+        self.quality_var = IntVar(value=92)
+        self.sharpen_var = IntVar(value=0)
+        self.status_var = StringVar(value="Ready.")
+        self.progress_percent_var = StringVar(value="0%")
+        self.inline_help_labels: list[ttk.Label] = []
+        self._build()
+
+    def _build(self) -> None:
+        outer = ttk.Frame(self, padding=10)
+        outer.pack(fill="both", expand=True)
+
+        controls = ttk.Frame(outer)
+        controls.pack(fill="x")
+        ttk.Button(controls, text="Add Images", command=self._add_images).pack(side="left")
+        ttk.Button(controls, text="Add Folder", command=self._add_image_folder).pack(side="left", padx=6)
+        ttk.Button(controls, text="Remove Selected", command=lambda: self.remove_selected(self.files, self.listbox)).pack(side="left")
+        ttk.Button(controls, text="Clear", command=lambda: self.clear_queue(self.files, self.listbox)).pack(side="left", padx=6)
+
+        queue = ttk.Frame(outer)
+        queue.pack(fill="both", expand=True, pady=(8, 8))
+        self.listbox = tk.Listbox(queue, selectmode=SINGLE)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(queue, orient="vertical", command=self.listbox.yview)
+        scroll.pack(side="right", fill="y")
+        self.listbox.configure(yscrollcommand=scroll.set)
+
+        options = ttk.LabelFrame(outer, text="Image Pipeline")
+        options.pack(fill="x")
+
+        format_label = ttk.Label(options, text="Output format")
+        format_label.grid(row=0, column=0, sticky="w", padx=(10, 6), pady=(10, 6))
+        format_combo = ttk.Combobox(
+            options,
+            textvariable=self.target_format,
+            values=["keep", "png", "jpg", "webp", "bmp", "tiff", "ico"],
+            state="readonly",
+            width=12,
+        )
+        format_combo.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(10, 6))
+
+        width_label = ttk.Label(options, text="Max width")
+        width_label.grid(row=0, column=2, sticky="w", padx=(10, 6), pady=(10, 6))
+        width_spin = ttk.Spinbox(options, from_=0, to=20000, textvariable=self.max_width_var, width=10)
+        width_spin.grid(row=0, column=3, sticky="w", padx=(0, 12), pady=(10, 6))
+
+        height_label = ttk.Label(options, text="Max height")
+        height_label.grid(row=0, column=4, sticky="w", padx=(10, 6), pady=(10, 6))
+        height_spin = ttk.Spinbox(options, from_=0, to=20000, textvariable=self.max_height_var, width=10)
+        height_spin.grid(row=0, column=5, sticky="w", padx=(0, 12), pady=(10, 6))
+
+        quality_label = ttk.Label(options, text="Export quality")
+        quality_label.grid(row=1, column=0, sticky="w", padx=(10, 6), pady=(6, 10))
+        quality_spin = ttk.Spinbox(options, from_=1, to=100, textvariable=self.quality_var, width=10)
+        quality_spin.grid(row=1, column=1, sticky="w", padx=(0, 12), pady=(6, 10))
+
+        sharpen_label = ttk.Label(options, text="Sharpen")
+        sharpen_label.grid(row=1, column=2, sticky="w", padx=(10, 6), pady=(6, 10))
+        sharpen_spin = ttk.Spinbox(options, from_=0, to=300, textvariable=self.sharpen_var, width=10)
+        sharpen_spin.grid(row=1, column=3, sticky="w", padx=(0, 12), pady=(6, 10))
+
+        resize_help_label = ttk.Label(options, text=IMAGE_RESIZE_HELP_TEXT, justify="left", wraplength=420)
+        resize_help_label.grid(row=2, column=0, columnspan=4, sticky="w", padx=(10, 12), pady=(0, 10))
+        sharpen_help_label = ttk.Label(options, text=IMAGE_SHARPEN_HELP_TEXT, justify="left", wraplength=360)
+        sharpen_help_label.grid(row=2, column=4, columnspan=2, sticky="w", padx=(10, 12), pady=(0, 10))
+        self.inline_help_labels.extend([resize_help_label, sharpen_help_label])
+
+        self.add_hover_tooltip([format_label, format_combo], lambda: "Choose the export format. 'keep' keeps the current image format.")
+        self.add_hover_tooltip([width_label, width_spin, height_label, height_spin], lambda: IMAGE_RESIZE_HELP_TEXT)
+        self.add_hover_tooltip([quality_label, quality_spin], lambda: "Quality applies to lossy outputs such as JPG and WEBP.")
+        self.add_hover_tooltip([sharpen_label, sharpen_spin], lambda: IMAGE_SHARPEN_HELP_TEXT)
+
+        out_row = ttk.Frame(outer)
+        out_row.pack(fill="x", pady=(10, 4))
+        ttk.Label(out_row, text="Output folder:").pack(side="left")
+        ttk.Entry(out_row, textvariable=self.output_dir).pack(side="left", fill="x", expand=True, padx=(8, 8))
+        ttk.Button(out_row, text="Browse", command=lambda: self.choose_output_dir(self.output_dir, "Choose image output folder")).pack(side="left")
+
+        bottom = ttk.Frame(outer)
+        bottom.pack(fill="x", pady=(4, 0))
+        self.progress = ttk.Progressbar(bottom, mode="determinate")
+        self.progress.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        ttk.Label(bottom, textvariable=self.progress_percent_var, width=6).pack(side="left", padx=(0, 10))
+        ttk.Button(bottom, text="Run Image Pipeline", command=self.run_images).pack(side="right")
+        ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(6, 0))
+        self.refresh_hover_tooltip_preference()
+
+    def refresh_hover_tooltip_preference(self) -> None:
+        super().refresh_hover_tooltip_preference()
+        self.apply_inline_help_visibility(self.inline_help_labels)
+
+    def export_preset(self) -> dict[str, Any]:
+        return {
+            "target_format": self.target_format.get(),
+            "max_width": self.max_width_var.get(),
+            "max_height": self.max_height_var.get(),
+            "quality": self.quality_var.get(),
+            "sharpen": self.sharpen_var.get(),
+        }
+
+    def apply_preset(self, payload: dict[str, Any]) -> None:
+        if "target_format" in payload:
+            self.target_format.set(str(payload["target_format"]))
+        if "max_width" in payload:
+            self.max_width_var.set(int(payload["max_width"]))
+        if "max_height" in payload:
+            self.max_height_var.set(int(payload["max_height"]))
+        if "quality" in payload:
+            self.quality_var.set(int(payload["quality"]))
+        if "sharpen" in payload:
+            self.sharpen_var.set(int(payload["sharpen"]))
+
+    def _add_images(self) -> None:
+        chosen = filedialog.askopenfilenames(title="Select image files")
+        if chosen:
+            self._enqueue_paths_by_extension(self.files, self.listbox, [Path(raw) for raw in chosen], IMAGE_EXTS, "selection", "image")
+
+    def _add_image_folder(self) -> None:
+        raw = filedialog.askdirectory(title="Select folder")
+        if raw:
+            self._enqueue_paths_by_extension(self.files, self.listbox, [Path(raw)], IMAGE_EXTS, "folder", "image")
+
+    def handle_external_drop(self, paths: list[Path]) -> bool:
+        return self._enqueue_paths_by_extension(self.files, self.listbox, paths, IMAGE_EXTS, "dropped selection", "image")
+
+    def run_images(self) -> None:
+        if not self.files:
+            messagebox.showwarning(APP_TITLE, "Add image files before running the image pipeline.")
+            return
+        out_dir = Path(self.output_dir.get().strip())
+        ensure_dir(out_dir)
+        options = self.export_preset()
+        total = len(self.files)
+
+        def work() -> None:
+            self.app.call_ui(lambda: (self.progress.configure(value=0, maximum=total), self.progress_percent_var.set("0%")))
+            failures = []
+            for index, file_path in enumerate(list(self.files), start=1):
+                try:
+                    result = self.app.engine.process_image_file(file_path, out_dir, options)
+                    self.log(f"{file_path.name} -> {result.name}")
+                except Exception as exc:
+                    failures.append(f"{file_path.name}: {exc}")
+                percent = int((index / total) * 100) if total else 0
+                self.app.call_ui(
+                    lambda i=index, total_files=total, current=file_path.name, p=percent: (
+                        self.progress.configure(value=i),
+                        self.progress_percent_var.set(f"{p}%"),
+                        self.status_var.set(f"Processed {i}/{total_files}: {current}"),
+                    )
+                )
+                self.app.call_ui(lambda p=file_path: self.remove_path_from_queue(self.files, self.listbox, p))
+            if failures:
+                raise RuntimeError(f"{len(failures)} image file(s) failed. First issue: {failures[0]}")
+            self.app.call_ui(lambda: self.status_var.set(f"Completed image processing for {total} file(s)."))
+
+        self.run_async(work, done_message=f"Images module finished {total} file(s).")
+
+
+class AudioTab(ModuleTab):
+    tab_name = "Audio"
+
+    def __init__(self, master, app: SuiteApp):
+        super().__init__(master, app)
+        self.files: list[Path] = []
+        self.target_format = StringVar(value="mp3")
+        self.output_dir = StringVar(value=str(self.app.default_output_root / "audio"))
+        self.audio_bitrate = StringVar(value="192k")
+        self.sample_rate = StringVar(value="keep")
+        self.channels = StringVar(value="keep")
+        self.normalize_var = BooleanVar(value=True)
+        self.trim_silence_var = BooleanVar(value=False)
+        self.status_var = StringVar(value="Ready.")
+        self.progress_percent_var = StringVar(value="0%")
+        self.inline_help_labels: list[ttk.Label] = []
+        self._build()
+
+    def _build(self) -> None:
+        outer = ttk.Frame(self, padding=10)
+        outer.pack(fill="both", expand=True)
+
+        controls = ttk.Frame(outer)
+        controls.pack(fill="x")
+        ttk.Button(controls, text="Add Audio", command=self._add_audio).pack(side="left")
+        ttk.Button(controls, text="Add Folder", command=self._add_audio_folder).pack(side="left", padx=6)
+        ttk.Button(controls, text="Remove Selected", command=lambda: self.remove_selected(self.files, self.listbox)).pack(side="left")
+        ttk.Button(controls, text="Clear", command=lambda: self.clear_queue(self.files, self.listbox)).pack(side="left", padx=6)
+
+        queue = ttk.Frame(outer)
+        queue.pack(fill="both", expand=True, pady=(8, 8))
+        self.listbox = tk.Listbox(queue, selectmode=SINGLE)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(queue, orient="vertical", command=self.listbox.yview)
+        scroll.pack(side="right", fill="y")
+        self.listbox.configure(yscrollcommand=scroll.set)
+
+        options = ttk.LabelFrame(outer, text="Audio Pipeline")
+        options.pack(fill="x")
+
+        format_label = ttk.Label(options, text="Output format")
+        format_label.grid(row=0, column=0, sticky="w", padx=(10, 6), pady=(10, 6))
+        format_combo = ttk.Combobox(options, textvariable=self.target_format, values=AUDIO_PROCESS_FORMATS, state="readonly", width=12)
+        format_combo.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(10, 6))
+
+        bitrate_label = ttk.Label(options, text="Audio bitrate")
+        bitrate_label.grid(row=0, column=2, sticky="w", padx=(10, 6), pady=(10, 6))
+        bitrate_combo = ttk.Combobox(
+            options,
+            textvariable=self.audio_bitrate,
+            values=["96k", "128k", "160k", "192k", "256k", "320k"],
+            state="readonly",
+            width=12,
+        )
+        bitrate_combo.grid(row=0, column=3, sticky="w", padx=(0, 12), pady=(10, 6))
+
+        sample_label = ttk.Label(options, text="Sample rate")
+        sample_label.grid(row=1, column=0, sticky="w", padx=(10, 6), pady=(6, 10))
+        sample_combo = ttk.Combobox(
+            options,
+            textvariable=self.sample_rate,
+            values=["keep", "22050", "32000", "44100", "48000", "96000"],
+            state="readonly",
+            width=12,
+        )
+        sample_combo.grid(row=1, column=1, sticky="w", padx=(0, 12), pady=(6, 10))
+
+        channels_label = ttk.Label(options, text="Channels")
+        channels_label.grid(row=1, column=2, sticky="w", padx=(10, 6), pady=(6, 10))
+        channels_combo = ttk.Combobox(options, textvariable=self.channels, values=["keep", "mono", "stereo"], state="readonly", width=12)
+        channels_combo.grid(row=1, column=3, sticky="w", padx=(0, 12), pady=(6, 10))
+
+        normalize_check = ttk.Checkbutton(options, text="Normalize loudness", variable=self.normalize_var)
+        normalize_check.grid(row=0, column=4, sticky="w", padx=(10, 12), pady=(10, 6))
+        trim_check = ttk.Checkbutton(options, text="Trim start/end silence", variable=self.trim_silence_var)
+        trim_check.grid(row=1, column=4, sticky="w", padx=(10, 12), pady=(6, 10))
+
+        sample_help_label = ttk.Label(options, text=AUDIO_SAMPLE_RATE_HELP_TEXT, justify="left", wraplength=340)
+        sample_help_label.grid(row=2, column=0, columnspan=2, sticky="w", padx=(10, 12), pady=(0, 10))
+        channels_help_label = ttk.Label(options, text=AUDIO_CHANNELS_HELP_TEXT, justify="left", wraplength=320)
+        channels_help_label.grid(row=2, column=2, columnspan=2, sticky="w", padx=(10, 12), pady=(0, 10))
+        cleanup_help_label = ttk.Label(options, text=AUDIO_CLEANUP_HELP_TEXT, justify="left", wraplength=360)
+        cleanup_help_label.grid(row=2, column=4, sticky="w", padx=(10, 12), pady=(0, 10))
+        self.inline_help_labels.extend([sample_help_label, channels_help_label, cleanup_help_label])
+
+        self.add_hover_tooltip([format_label, format_combo], lambda: "Choose the delivery format for the processed audio.")
+        self.add_hover_tooltip([bitrate_label, bitrate_combo], lambda: AUDIO_BITRATE_HELP_TEXT)
+        self.add_hover_tooltip([sample_label, sample_combo], lambda: AUDIO_SAMPLE_RATE_HELP_TEXT)
+        self.add_hover_tooltip([channels_label, channels_combo], lambda: AUDIO_CHANNELS_HELP_TEXT)
+        self.add_hover_tooltip([normalize_check, trim_check], lambda: AUDIO_CLEANUP_HELP_TEXT)
+
+        out_row = ttk.Frame(outer)
+        out_row.pack(fill="x", pady=(10, 4))
+        ttk.Label(out_row, text="Output folder:").pack(side="left")
+        ttk.Entry(out_row, textvariable=self.output_dir).pack(side="left", fill="x", expand=True, padx=(8, 8))
+        ttk.Button(out_row, text="Browse", command=lambda: self.choose_output_dir(self.output_dir, "Choose audio output folder")).pack(side="left")
+
+        bottom = ttk.Frame(outer)
+        bottom.pack(fill="x", pady=(4, 0))
+        self.progress = ttk.Progressbar(bottom, mode="determinate")
+        self.progress.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        ttk.Label(bottom, textvariable=self.progress_percent_var, width=6).pack(side="left", padx=(0, 10))
+        ttk.Button(bottom, text="Run Audio Pipeline", command=self.run_audio).pack(side="right")
+        ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(6, 0))
+        self.refresh_hover_tooltip_preference()
+
+    def refresh_hover_tooltip_preference(self) -> None:
+        super().refresh_hover_tooltip_preference()
+        self.apply_inline_help_visibility(self.inline_help_labels)
+
+    def export_preset(self) -> dict[str, Any]:
+        return {
+            "target_format": self.target_format.get(),
+            "audio_bitrate": self.audio_bitrate.get(),
+            "sample_rate": self.sample_rate.get(),
+            "channels": self.channels.get(),
+            "normalize": bool(self.normalize_var.get()),
+            "trim_silence": bool(self.trim_silence_var.get()),
+        }
+
+    def apply_preset(self, payload: dict[str, Any]) -> None:
+        if "target_format" in payload:
+            self.target_format.set(str(payload["target_format"]))
+        if "audio_bitrate" in payload:
+            self.audio_bitrate.set(str(payload["audio_bitrate"]))
+        if "sample_rate" in payload:
+            self.sample_rate.set(str(payload["sample_rate"]))
+        if "channels" in payload:
+            self.channels.set(str(payload["channels"]))
+        if "normalize" in payload:
+            self.normalize_var.set(bool(payload["normalize"]))
+        if "trim_silence" in payload:
+            self.trim_silence_var.set(bool(payload["trim_silence"]))
+
+    def _add_audio(self) -> None:
+        chosen = filedialog.askopenfilenames(title="Select audio files")
+        if chosen:
+            self._enqueue_paths_by_extension(self.files, self.listbox, [Path(raw) for raw in chosen], AUDIO_EXTS, "selection", "audio")
+
+    def _add_audio_folder(self) -> None:
+        raw = filedialog.askdirectory(title="Select folder")
+        if raw:
+            self._enqueue_paths_by_extension(self.files, self.listbox, [Path(raw)], AUDIO_EXTS, "folder", "audio")
+
+    def handle_external_drop(self, paths: list[Path]) -> bool:
+        return self._enqueue_paths_by_extension(self.files, self.listbox, paths, AUDIO_EXTS, "dropped selection", "audio")
+
+    def run_audio(self) -> None:
+        if not self.files:
+            messagebox.showwarning(APP_TITLE, "Add audio files before running the audio pipeline.")
+            return
+        out_dir = Path(self.output_dir.get().strip())
+        ensure_dir(out_dir)
+        options = self.export_preset()
+        total = len(self.files)
+
+        def work() -> None:
+            self.app.call_ui(lambda: (self.progress.configure(value=0, maximum=total), self.progress_percent_var.set("0%")))
+            failures = []
+            for index, file_path in enumerate(list(self.files), start=1):
+                try:
+                    result = self.app.engine.process_audio_file(file_path, out_dir, options)
+                    self.log(f"{file_path.name} -> {result.name}")
+                except Exception as exc:
+                    failures.append(f"{file_path.name}: {exc}")
+                percent = int((index / total) * 100) if total else 0
+                self.app.call_ui(
+                    lambda i=index, total_files=total, current=file_path.name, p=percent: (
+                        self.progress.configure(value=i),
+                        self.progress_percent_var.set(f"{p}%"),
+                        self.status_var.set(f"Processed {i}/{total_files}: {current}"),
+                    )
+                )
+                self.app.call_ui(lambda p=file_path: self.remove_path_from_queue(self.files, self.listbox, p))
+            if failures:
+                raise RuntimeError(f"{len(failures)} audio file(s) failed. First issue: {failures[0]}")
+            self.app.call_ui(lambda: self.status_var.set(f"Completed audio processing for {total} file(s)."))
+
+        self.run_async(work, done_message=f"Audio module finished {total} file(s).")
+
+
+class VideoTab(ModuleTab):
+    tab_name = "Video"
+
+    MODE_MAP = {
+        "Stream Prep": "stream_prep",
+        "Remux (container copy)": "remux",
+        "Trim Clip": "trim",
+        "Thumbnail Sheet": "thumbnail_sheet",
+    }
+
+    MODE_HELP = {
+        "Stream Prep": "Re-encode for common delivery targets such as YouTube, Discord, Shorts, and TikTok.",
+        "Remux (container copy)": "Copy the existing streams into another container without re-encoding when codecs are compatible.",
+        "Trim Clip": "Cut a clip using start/end times. This starter prefers stream-copy for fast trims.",
+        "Thumbnail Sheet": "Build a contact sheet image by sampling frames at a fixed interval.",
+    }
+
+    def __init__(self, master, app: SuiteApp):
+        super().__init__(master, app)
+        self.files: list[Path] = []
+        self.mode_var = StringVar(value="Stream Prep")
+        self.mode_help_var = StringVar(value=self.MODE_HELP["Stream Prep"])
+        self.output_dir = StringVar(value=str(self.app.default_output_root / "video"))
+        self.container_var = StringVar(value="mp4")
+        self.trim_container_var = StringVar(value="keep")
+        self.trim_start_var = StringVar(value="")
+        self.trim_end_var = StringVar(value="")
+        self.stream_preset_var = StringVar(value=next(iter(VIDEO_STREAM_PRESETS)))
+        self.video_preset_var = StringVar(value="medium")
+        self.video_crf_var = IntVar(value=23)
+        self.thumb_interval_var = StringVar(value="15")
+        self.thumb_columns_var = IntVar(value=4)
+        self.thumb_rows_var = IntVar(value=4)
+        self.thumb_width_var = IntVar(value=320)
+        self.status_var = StringVar(value="Ready.")
+        self.progress_percent_var = StringVar(value="0%")
+        self.inline_help_labels: list[ttk.Label] = []
+        self.mode_var.trace_add("write", self._update_mode_help)
+        self._build()
+
+    def _build(self) -> None:
+        outer = ttk.Frame(self, padding=10)
+        outer.pack(fill="both", expand=True)
+
+        controls = ttk.Frame(outer)
+        controls.pack(fill="x")
+        ttk.Button(controls, text="Add Videos", command=self._add_videos).pack(side="left")
+        ttk.Button(controls, text="Add Folder", command=self._add_video_folder).pack(side="left", padx=6)
+        ttk.Button(controls, text="Remove Selected", command=lambda: self.remove_selected(self.files, self.listbox)).pack(side="left")
+        ttk.Button(controls, text="Clear", command=lambda: self.clear_queue(self.files, self.listbox)).pack(side="left", padx=6)
+
+        queue = ttk.Frame(outer)
+        queue.pack(fill="both", expand=True, pady=(8, 8))
+        self.listbox = tk.Listbox(queue, selectmode=SINGLE)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(queue, orient="vertical", command=self.listbox.yview)
+        scroll.pack(side="right", fill="y")
+        self.listbox.configure(yscrollcommand=scroll.set)
+
+        options = ttk.LabelFrame(outer, text="Video Workflows")
+        options.pack(fill="x")
+
+        mode_label = ttk.Label(options, text="Workflow")
+        mode_label.grid(row=0, column=0, sticky="w", padx=(10, 6), pady=(10, 6))
+        mode_combo = ttk.Combobox(options, textvariable=self.mode_var, values=list(self.MODE_MAP.keys()), state="readonly", width=22)
+        mode_combo.grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(10, 6))
+        mode_help_label = ttk.Label(options, textvariable=self.mode_help_var, justify="left", wraplength=760)
+        mode_help_label.grid(row=0, column=2, columnspan=4, sticky="w", padx=(10, 12), pady=(10, 6))
+        self.inline_help_labels.append(mode_help_label)
+
+        remux_label = ttk.Label(options, text="Remux container")
+        remux_label.grid(row=1, column=0, sticky="w", padx=(10, 6), pady=(6, 6))
+        remux_combo = ttk.Combobox(options, textvariable=self.container_var, values=VIDEO_REMUX_FORMATS, state="readonly", width=12)
+        remux_combo.grid(row=1, column=1, sticky="w", padx=(0, 12), pady=(6, 6))
+
+        trim_start_label = ttk.Label(options, text="Trim start")
+        trim_start_label.grid(row=1, column=2, sticky="w", padx=(10, 6), pady=(6, 6))
+        trim_start_entry = ttk.Entry(options, textvariable=self.trim_start_var, width=12)
+        trim_start_entry.grid(row=1, column=3, sticky="w", padx=(0, 12), pady=(6, 6))
+
+        trim_end_label = ttk.Label(options, text="Trim end")
+        trim_end_label.grid(row=1, column=4, sticky="w", padx=(10, 6), pady=(6, 6))
+        trim_end_entry = ttk.Entry(options, textvariable=self.trim_end_var, width=12)
+        trim_end_entry.grid(row=1, column=5, sticky="w", padx=(0, 12), pady=(6, 6))
+
+        trim_container_label = ttk.Label(options, text="Trim output")
+        trim_container_label.grid(row=2, column=0, sticky="w", padx=(10, 6), pady=(6, 6))
+        trim_container_combo = ttk.Combobox(
+            options,
+            textvariable=self.trim_container_var,
+            values=["keep", *VIDEO_REMUX_FORMATS],
+            state="readonly",
+            width=12,
+        )
+        trim_container_combo.grid(row=2, column=1, sticky="w", padx=(0, 12), pady=(6, 6))
+
+        stream_preset_label = ttk.Label(options, text="Stream preset")
+        stream_preset_label.grid(row=2, column=2, sticky="w", padx=(10, 6), pady=(6, 6))
+        stream_preset_combo = ttk.Combobox(
+            options,
+            textvariable=self.stream_preset_var,
+            values=list(VIDEO_STREAM_PRESETS.keys()),
+            state="readonly",
+            width=22,
+        )
+        stream_preset_combo.grid(row=2, column=3, sticky="w", padx=(0, 12), pady=(6, 6))
+
+        encode_preset_label = ttk.Label(options, text="Encode preset")
+        encode_preset_label.grid(row=2, column=4, sticky="w", padx=(10, 6), pady=(6, 6))
+        encode_preset_combo = ttk.Combobox(
+            options,
+            textvariable=self.video_preset_var,
+            values=["ultrafast", "veryfast", "medium", "slow"],
+            state="readonly",
+            width=12,
+        )
+        encode_preset_combo.grid(row=2, column=5, sticky="w", padx=(0, 12), pady=(6, 6))
+
+        crf_label = ttk.Label(options, text="Video quality (CRF)")
+        crf_label.grid(row=3, column=0, sticky="w", padx=(10, 6), pady=(6, 10))
+        crf_spin = ttk.Spinbox(options, from_=18, to=35, textvariable=self.video_crf_var, width=10)
+        crf_spin.grid(row=3, column=1, sticky="w", padx=(0, 12), pady=(6, 10))
+
+        thumb_interval_label = ttk.Label(options, text="Sheet interval (s)")
+        thumb_interval_label.grid(row=3, column=2, sticky="w", padx=(10, 6), pady=(6, 10))
+        thumb_interval_entry = ttk.Entry(options, textvariable=self.thumb_interval_var, width=12)
+        thumb_interval_entry.grid(row=3, column=3, sticky="w", padx=(0, 12), pady=(6, 10))
+
+        thumb_columns_label = ttk.Label(options, text="Columns")
+        thumb_columns_label.grid(row=3, column=4, sticky="w", padx=(10, 6), pady=(6, 10))
+        thumb_columns_spin = ttk.Spinbox(options, from_=1, to=12, textvariable=self.thumb_columns_var, width=8)
+        thumb_columns_spin.grid(row=3, column=5, sticky="w", padx=(0, 12), pady=(6, 10))
+
+        thumb_rows_label = ttk.Label(options, text="Rows")
+        thumb_rows_label.grid(row=4, column=0, sticky="w", padx=(10, 6), pady=(0, 10))
+        thumb_rows_spin = ttk.Spinbox(options, from_=1, to=12, textvariable=self.thumb_rows_var, width=8)
+        thumb_rows_spin.grid(row=4, column=1, sticky="w", padx=(0, 12), pady=(0, 10))
+
+        thumb_width_label = ttk.Label(options, text="Frame width")
+        thumb_width_label.grid(row=4, column=2, sticky="w", padx=(10, 6), pady=(0, 10))
+        thumb_width_spin = ttk.Spinbox(options, from_=120, to=1200, textvariable=self.thumb_width_var, width=10)
+        thumb_width_spin.grid(row=4, column=3, sticky="w", padx=(0, 12), pady=(0, 10))
+
+        trim_help_label = ttk.Label(options, text=VIDEO_TRIM_HELP_TEXT, justify="left", wraplength=420)
+        trim_help_label.grid(row=5, column=0, columnspan=3, sticky="w", padx=(10, 12), pady=(0, 10))
+        thumbnail_help_label = ttk.Label(options, text=VIDEO_THUMBNAIL_HELP_TEXT, justify="left", wraplength=420)
+        thumbnail_help_label.grid(row=5, column=3, columnspan=3, sticky="w", padx=(10, 12), pady=(0, 10))
+        self.inline_help_labels.extend([trim_help_label, thumbnail_help_label])
+
+        self.add_hover_tooltip([mode_label, mode_combo], lambda: VIDEO_MODE_HELP_TEXT)
+        self.add_hover_tooltip([mode_help_label], lambda: self.mode_help_var.get())
+        self.add_hover_tooltip([remux_label, remux_combo], lambda: "Remux changes only the container. Compatible streams can be copied without re-encoding.")
+        self.add_hover_tooltip([trim_start_label, trim_start_entry, trim_end_label, trim_end_entry, trim_container_label, trim_container_combo], lambda: VIDEO_TRIM_HELP_TEXT)
+        self.add_hover_tooltip([stream_preset_label, stream_preset_combo], lambda: "Destination preset that sets output size, frame rate, and target bitrate.")
+        self.add_hover_tooltip([encode_preset_label, encode_preset_combo], lambda: VIDEO_PRESET_HELP_TEXT)
+        self.add_hover_tooltip([crf_label, crf_spin], lambda: VIDEO_CRF_HELP_TEXT)
+        self.add_hover_tooltip([thumb_interval_label, thumb_interval_entry, thumb_columns_label, thumb_columns_spin, thumb_rows_label, thumb_rows_spin, thumb_width_label, thumb_width_spin], lambda: VIDEO_THUMBNAIL_HELP_TEXT)
+
+        out_row = ttk.Frame(outer)
+        out_row.pack(fill="x", pady=(10, 4))
+        ttk.Label(out_row, text="Output folder:").pack(side="left")
+        ttk.Entry(out_row, textvariable=self.output_dir).pack(side="left", fill="x", expand=True, padx=(8, 8))
+        ttk.Button(out_row, text="Browse", command=lambda: self.choose_output_dir(self.output_dir, "Choose video output folder")).pack(side="left")
+
+        bottom = ttk.Frame(outer)
+        bottom.pack(fill="x", pady=(4, 0))
+        self.progress = ttk.Progressbar(bottom, mode="determinate")
+        self.progress.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        ttk.Label(bottom, textvariable=self.progress_percent_var, width=6).pack(side="left", padx=(0, 10))
+        ttk.Button(bottom, text="Run Video Workflow", command=self.run_video).pack(side="right")
+        ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(6, 0))
+        self.refresh_hover_tooltip_preference()
+
+    def refresh_hover_tooltip_preference(self) -> None:
+        super().refresh_hover_tooltip_preference()
+        self.apply_inline_help_visibility(self.inline_help_labels)
+
+    def _update_mode_help(self, *_args) -> None:
+        self.mode_help_var.set(self.MODE_HELP.get(self.mode_var.get(), VIDEO_MODE_HELP_TEXT))
+
+    def export_preset(self) -> dict[str, Any]:
+        return {
+            "mode_name": self.mode_var.get(),
+            "mode_key": self.MODE_MAP[self.mode_var.get()],
+            "container": self.container_var.get(),
+            "trim_container": self.trim_container_var.get(),
+            "trim_start": self.trim_start_var.get(),
+            "trim_end": self.trim_end_var.get(),
+            "stream_preset_name": self.stream_preset_var.get(),
+            "video_preset": self.video_preset_var.get(),
+            "video_crf": self.video_crf_var.get(),
+            "thumb_interval": self.thumb_interval_var.get(),
+            "thumb_columns": self.thumb_columns_var.get(),
+            "thumb_rows": self.thumb_rows_var.get(),
+            "thumb_width": self.thumb_width_var.get(),
+        }
+
+    def apply_preset(self, payload: dict[str, Any]) -> None:
+        if "mode_name" in payload and payload["mode_name"] in self.MODE_MAP:
+            self.mode_var.set(str(payload["mode_name"]))
+        if "container" in payload:
+            self.container_var.set(str(payload["container"]))
+        if "trim_container" in payload:
+            self.trim_container_var.set(str(payload["trim_container"]))
+        if "trim_start" in payload:
+            self.trim_start_var.set(str(payload["trim_start"]))
+        if "trim_end" in payload:
+            self.trim_end_var.set(str(payload["trim_end"]))
+        if "stream_preset_name" in payload and str(payload["stream_preset_name"]) in VIDEO_STREAM_PRESETS:
+            self.stream_preset_var.set(str(payload["stream_preset_name"]))
+        if "video_preset" in payload:
+            self.video_preset_var.set(str(payload["video_preset"]))
+        if "video_crf" in payload:
+            self.video_crf_var.set(int(payload["video_crf"]))
+        if "thumb_interval" in payload:
+            self.thumb_interval_var.set(str(payload["thumb_interval"]))
+        if "thumb_columns" in payload:
+            self.thumb_columns_var.set(int(payload["thumb_columns"]))
+        if "thumb_rows" in payload:
+            self.thumb_rows_var.set(int(payload["thumb_rows"]))
+        if "thumb_width" in payload:
+            self.thumb_width_var.set(int(payload["thumb_width"]))
+        self._update_mode_help()
+
+    def _add_videos(self) -> None:
+        chosen = filedialog.askopenfilenames(title="Select video files")
+        if chosen:
+            self._enqueue_paths_by_extension(self.files, self.listbox, [Path(raw) for raw in chosen], VIDEO_EXTS, "selection", "video")
+
+    def _add_video_folder(self) -> None:
+        raw = filedialog.askdirectory(title="Select folder")
+        if raw:
+            self._enqueue_paths_by_extension(self.files, self.listbox, [Path(raw)], VIDEO_EXTS, "folder", "video")
+
+    def handle_external_drop(self, paths: list[Path]) -> bool:
+        return self._enqueue_paths_by_extension(self.files, self.listbox, paths, VIDEO_EXTS, "dropped selection", "video")
+
+    def run_video(self) -> None:
+        if not self.files:
+            messagebox.showwarning(APP_TITLE, "Add video files before running the video workflow.")
+            return
+        mode_name = self.mode_var.get()
+        mode_key = self.MODE_MAP[mode_name]
+        if mode_key == "trim" and not self.trim_start_var.get().strip() and not self.trim_end_var.get().strip():
+            messagebox.showwarning(APP_TITLE, "Enter a trim start time, an end time, or both before running Trim Clip.")
+            return
+        if mode_key == "thumbnail_sheet":
+            try:
+                if float(self.thumb_interval_var.get().strip()) <= 0:
+                    raise ValueError
+            except Exception:
+                messagebox.showwarning(APP_TITLE, "Sheet interval must be a positive number of seconds.")
+                return
+        out_dir = Path(self.output_dir.get().strip())
+        ensure_dir(out_dir)
+        options = self.export_preset()
+        total = len(self.files)
+
+        def work() -> None:
+            self.app.call_ui(lambda: (self.progress.configure(value=0, maximum=total), self.progress_percent_var.set("0%")))
+            failures = []
+            for index, file_path in enumerate(list(self.files), start=1):
+                try:
+                    result = self.app.engine.process_video_file(file_path, out_dir, mode_key, options)
+                    self.log(f"{file_path.name} -> {result.name}")
+                except Exception as exc:
+                    failures.append(f"{file_path.name}: {exc}")
+                percent = int((index / total) * 100) if total else 0
+                self.app.call_ui(
+                    lambda i=index, total_files=total, current=file_path.name, p=percent: (
+                        self.progress.configure(value=i),
+                        self.progress_percent_var.set(f"{p}%"),
+                        self.status_var.set(f"Processed {i}/{total_files}: {current}"),
+                    )
+                )
+                self.app.call_ui(lambda p=file_path: self.remove_path_from_queue(self.files, self.listbox, p))
+            if failures:
+                raise RuntimeError(f"{len(failures)} video file(s) failed. First issue: {failures[0]}")
+            self.app.call_ui(lambda: self.status_var.set(f"Completed video workflow for {total} file(s)."))
+
+        self.run_async(work, done_message=f"Video module finished {total} file(s).")
 
 
 class ArchivesTab(ModuleTab):
@@ -4975,15 +6534,43 @@ class DuplicateFinderTab(ModuleTab):
 
         top = ttk.Frame(outer)
         top.pack(fill="x")
-        ttk.Label(top, text="Folder").pack(side="left")
-        ttk.Entry(top, textvariable=self.folder_var).pack(side="left", fill="x", expand=True, padx=(8, 8))
-        ttk.Button(top, text="Browse", command=lambda: self.choose_output_dir(self.folder_var, "Choose folder to scan")).pack(side="left")
-        ttk.Label(top, text="Min size (MB)").pack(side="left", padx=(14, 6))
-        ttk.Spinbox(top, from_=0, to=2048, textvariable=self.min_size_mb, width=8).pack(side="left")
+        folder_label = ttk.Label(top, text="Folder")
+        folder_label.pack(side="left")
+        folder_entry = ttk.Entry(top, textvariable=self.folder_var)
+        folder_entry.pack(side="left", fill="x", expand=True, padx=(8, 8))
+        browse_button = ttk.Button(top, text="Browse", command=lambda: self.choose_output_dir(self.folder_var, "Choose folder to scan"))
+        browse_button.pack(side="left")
+        min_size_label = ttk.Label(top, text="Min size (MB)")
+        min_size_label.pack(side="left", padx=(14, 6))
+        min_size_spinbox = ttk.Spinbox(top, from_=0, to=2048, textvariable=self.min_size_mb, width=8)
+        min_size_spinbox.pack(side="left")
         self.cancel_button = ttk.Button(top, text="Cancel Scan", command=self.cancel_scan, state="disabled")
         self.cancel_button.pack(side="right")
         self.scan_button = ttk.Button(top, text="Scan Duplicates", command=self.scan)
         self.scan_button.pack(side="right", padx=(0, 8))
+
+        self.add_hover_tooltip(
+            [folder_label, folder_entry, browse_button],
+            lambda: "Choose the folder tree to scan for duplicate files.",
+        )
+        self.add_hover_tooltip(
+            [min_size_label, min_size_spinbox],
+            lambda: (
+                f"Skip files smaller than the configured threshold.\n"
+                f"Current minimum: {self.min_size_mb.get()} MB."
+            ),
+        )
+        self.add_hover_tooltip(
+            self.scan_button,
+            lambda: (
+                "Scan for duplicates using a staged approach:\n"
+                "size filter -> quick fingerprint -> full SHA256 verification."
+            ),
+        )
+        self.add_hover_tooltip(
+            self.cancel_button,
+            lambda: "Request cancellation of the current duplicate scan.",
+        )
 
         self.tree = ttk.Treeview(outer, columns=("hash", "size", "path"), show="headings")
         self.tree.heading("hash", text="SHA256")
@@ -4993,9 +6580,18 @@ class DuplicateFinderTab(ModuleTab):
         self.tree.column("size", width=120)
         self.tree.column("path", width=900)
         self.tree.pack(fill="both", expand=True, pady=(8, 0))
+        self.add_hover_tooltip(
+            self.tree,
+            lambda: "Verified duplicate results. Each group shares the same SHA256 hash and file size.",
+        )
         self.progress = ttk.Progressbar(outer, mode="determinate", maximum=100, value=0)
         self.progress.pack(fill="x", pady=(8, 0))
+        self.add_hover_tooltip(
+            self.progress,
+            lambda: "Progress through duplicate candidate filtering and full SHA256 verification.",
+        )
         ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(6, 0))
+        self.refresh_hover_tooltip_preference()
 
     def _set_scan_running(self, running: bool) -> None:
         if self.scan_button is not None:
@@ -5200,6 +6796,7 @@ class StorageAnalyzerTab(ModuleTab):
         self.graph_entries: dict[str, list[StorageViewEntry]] = {}
         self._render_after_ids: dict[str, str] = {}
         self.root_total_size = 0
+        self.inline_help_labels: list[ttk.Label] = []
         self.view_descriptions = {
             "top_level": "Pie chart of the largest direct children in the selected folder.",
             "largest_files": "Pie chart of the largest individual files within the selected folder tree.",
@@ -5208,83 +6805,155 @@ class StorageAnalyzerTab(ModuleTab):
         self._build()
 
     def _build(self) -> None:
-        outer = ttk.Frame(self, padding=10)
+        outer = ttk.Frame(self, style="App.TFrame", padding=12)
         outer.pack(fill="both", expand=True)
 
-        top = ttk.Frame(outer)
-        top.pack(fill="x")
-        ttk.Label(top, text="Folder").pack(side="left")
-        ttk.Entry(top, textvariable=self.folder_var).pack(side="left", fill="x", expand=True, padx=(8, 8))
-        ttk.Button(top, text="Browse", command=lambda: self.choose_output_dir(self.folder_var, "Choose folder to analyze")).pack(side="left")
-        ttk.Label(top, text="Top N").pack(side="left", padx=(14, 6))
-        ttk.Spinbox(top, from_=5, to=200, textvariable=self.top_n_var, width=8).pack(side="left")
-        self.cancel_button = ttk.Button(top, text="Cancel", command=self.cancel_analysis, state="disabled")
+        controls_box = ttk.LabelFrame(outer, text="Storage Analysis", style="Card.TLabelframe")
+        controls_box.pack(fill="x")
+        controls_body = ttk.Frame(controls_box, style="Card.TFrame")
+        controls_body.pack(fill="x", padx=12, pady=12)
+
+        folder_row = ttk.Frame(controls_body, style="Card.TFrame")
+        folder_row.pack(fill="x")
+        folder_label = ttk.Label(folder_row, text="Folder", style="CardBody.TLabel")
+        folder_label.pack(side="left")
+        folder_entry = ttk.Entry(folder_row, textvariable=self.folder_var)
+        folder_entry.pack(side="left", fill="x", expand=True, padx=(8, 8))
+        browse_button = ttk.Button(
+            folder_row,
+            text="Browse",
+            style="QuietApp.TButton",
+            command=lambda: self.choose_output_dir(self.folder_var, "Choose folder to analyze"),
+        )
+        browse_button.pack(side="left")
+        self.add_hover_tooltip(
+            [folder_label, folder_entry, browse_button],
+            lambda: "Choose the folder tree to analyze for storage usage.",
+        )
+
+        action_row = ttk.Frame(controls_body, style="Card.TFrame")
+        action_row.pack(fill="x", pady=(10, 0))
+        top_n_label = ttk.Label(action_row, text="Top N", style="CardBody.TLabel")
+        top_n_label.pack(side="left")
+        top_n_spinbox = ttk.Spinbox(action_row, from_=5, to=200, textvariable=self.top_n_var, width=8)
+        top_n_spinbox.pack(side="left", padx=(8, 12))
+        compare_help_label = ttk.Label(
+            action_row,
+            text="Compare direct children, largest files, and largest folders using the tabs below.",
+            style="CardMuted.TLabel",
+        )
+        compare_help_label.pack(side="left")
+        self.inline_help_labels.append(compare_help_label)
+        self.cancel_button = ttk.Button(action_row, text="Cancel", style="QuietApp.TButton", command=self.cancel_analysis, state="disabled")
         self.cancel_button.pack(side="right")
-        self.analyze_button = ttk.Button(top, text="Analyze", command=self.analyze)
+        self.analyze_button = ttk.Button(action_row, text="Analyze", style="PrimaryApp.TButton", command=self.analyze)
         self.analyze_button.pack(side="right", padx=(0, 8))
+        self.add_hover_tooltip(
+            [top_n_label, top_n_spinbox],
+            lambda: (
+                "Number of items to surface into each chart and table view.\n"
+                f"Current Top N: {self.top_n_var.get()}."
+            ),
+        )
+        self.add_hover_tooltip(
+            compare_help_label,
+            lambda: "Switch the tabs below to compare top-level items, largest files, and largest folders.",
+        )
+        self.add_hover_tooltip(
+            self.analyze_button,
+            lambda: "Start a storage scan and build pie-chart and table views for the selected folder.",
+        )
+        self.add_hover_tooltip(
+            self.cancel_button,
+            lambda: "Request cancellation of the current storage analysis.",
+        )
 
-        progress_row = ttk.Frame(outer)
-        progress_row.pack(fill="x", pady=(8, 0))
-        self.progress = ttk.Progressbar(progress_row, mode="determinate", maximum=100, value=0)
+        progress_box = ttk.LabelFrame(outer, text="Scan Progress", style="Card.TLabelframe")
+        progress_box.pack(fill="x", pady=(10, 0))
+        progress_body = ttk.Frame(progress_box, style="Card.TFrame")
+        progress_body.pack(fill="x", padx=12, pady=12)
+        self.progress = ttk.Progressbar(progress_body, mode="determinate", maximum=100, value=0)
         self.progress.pack(side="left", fill="x", expand=True)
-        ttk.Label(progress_row, textvariable=self.progress_percent_var, width=6, anchor="e").pack(side="left", padx=(8, 0))
+        ttk.Label(progress_body, textvariable=self.progress_percent_var, style="CardBody.TLabel", width=6, anchor="e").pack(side="left", padx=(8, 0))
+        self.add_hover_tooltip(
+            self.progress,
+            lambda: "Progress through indexing and size aggregation for the current storage scan.",
+        )
 
-        ttk.Label(
-            outer,
-            text="Toggle tabs to switch between pie-chart views for top-level items, largest files, and largest folders.",
-            wraplength=1180,
-            justify="left",
-        ).pack(anchor="w", pady=(6, 0))
-
-        self.view_notebook = ttk.Notebook(outer, style="App.TNotebook")
-        self.view_notebook.pack(fill="both", expand=True, pady=(8, 0))
+        views_shell = ttk.Frame(outer, style="Surface.TFrame", padding=(0, 10, 0, 0))
+        views_shell.pack(fill="both", expand=True)
+        self.view_notebook = ttk.Notebook(views_shell, style="App.TNotebook")
+        self.view_notebook.pack(fill="both", expand=True)
         self.view_notebook.enable_traversal()
         self._build_view_tab("top_level", "Top-Level")
         self._build_view_tab("largest_files", "Largest Files")
         self._build_view_tab("largest_folders", "Largest Folders")
 
-        ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(6, 0))
+        ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(8, 0))
+        self.refresh_hover_tooltip_preference()
 
     def _build_view_tab(self, view_key: str, title: str) -> None:
         assert self.view_notebook is not None
-        frame = ttk.Frame(self.view_notebook, padding=8)
+        frame = ttk.Frame(self.view_notebook, style="Surface.TFrame", padding=10)
         self.view_notebook.add(frame, text=title)
 
-        split = ttk.Panedwindow(frame, orient="vertical")
+        split = ttk.Panedwindow(frame, orient="horizontal")
         split.pack(fill="both", expand=True)
 
-        graph_box = ttk.Labelframe(split, text=f"{title} Pie Chart")
-        table_box = ttk.Labelframe(split, text=f"{title} Table")
-        split.add(graph_box, weight=2)
-        split.add(table_box, weight=1)
+        graph_box = ttk.Labelframe(split, text=f"{title} Chart", style="Card.TLabelframe")
+        table_box = ttk.Labelframe(split, text=f"{title} Table", style="Card.TLabelframe")
+        split.add(graph_box, weight=3)
+        split.add(table_box, weight=4)
 
-        canvas = tk.Canvas(graph_box, height=290, highlightthickness=1, cursor="hand2")
-        canvas.pack(fill="both", expand=True, padx=8, pady=(8, 4))
+        graph_body = ttk.Frame(graph_box, style="Card.TFrame")
+        graph_body.pack(fill="both", expand=True, padx=10, pady=10)
+        canvas = tk.Canvas(graph_body, height=420, highlightthickness=1, cursor="hand2")
+        canvas.pack(fill="both", expand=True)
         canvas.bind("<Configure>", lambda _event, view=view_key: self._schedule_chart_render(view))
         self.graph_canvases[view_key] = canvas
+        self.add_hover_tooltip(
+            canvas,
+            lambda view=view_key: (
+                f"{self.view_descriptions[view]}\n\n"
+                "Click a slice to select the matching row. Double-click a slice to open that file or folder."
+            ),
+        )
 
         hint_var = StringVar(value=self.view_descriptions[view_key])
         self.graph_hint_vars[view_key] = hint_var
-        ttk.Label(graph_box, textvariable=hint_var, wraplength=1180, justify="left").pack(anchor="w", padx=8, pady=(0, 8))
+        ttk.Label(graph_body, textvariable=hint_var, style="CardMuted.TLabel", wraplength=520, justify="left").pack(anchor="w", pady=(10, 0))
 
-        tree_frame = ttk.Frame(table_box)
-        tree_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        table_body = ttk.Frame(table_box, style="Card.TFrame")
+        table_body.pack(fill="both", expand=True, padx=10, pady=10)
+        tree_frame = ttk.Frame(table_body, style="Card.TFrame")
+        tree_frame.pack(fill="both", expand=True)
         tree = ttk.Treeview(tree_frame, columns=("size", "share", "path"), show="headings")
         tree.heading("size", text="Size")
         tree.heading("share", text="Share")
         tree.heading("path", text="Path")
-        tree.column("size", width=130, anchor="e")
+        tree.column("size", width=120, anchor="e")
         tree.column("share", width=90, anchor="e")
-        tree.column("path", width=980, anchor="w")
+        tree.column("path", width=720, anchor="w")
         tree.pack(side="left", fill="both", expand=True)
         tree.bind("<Double-1>", lambda _event, view=view_key: self._open_selected_storage_item(view))
         self.tree_views[view_key] = tree
+        self.add_hover_tooltip(
+            tree,
+            lambda view=view_key: (
+                f"{self.view_descriptions[view]}\n\n"
+                "Double-click a row to open the selected file or folder."
+            ),
+        )
 
         y_scroll = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
         y_scroll.pack(side="right", fill="y")
-        x_scroll = ttk.Scrollbar(table_box, orient="horizontal", command=tree.xview)
-        x_scroll.pack(fill="x", padx=8, pady=(0, 8))
+        x_scroll = ttk.Scrollbar(table_body, orient="horizontal", command=tree.xview)
+        x_scroll.pack(fill="x", pady=(8, 0))
         tree.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
+
+    def refresh_hover_tooltip_preference(self) -> None:
+        super().refresh_hover_tooltip_preference()
+        self.apply_inline_help_visibility(self.inline_help_labels)
 
     def _set_scan_running(self, running: bool) -> None:
         if self.analyze_button is not None:
@@ -5469,7 +7138,7 @@ class StorageAnalyzerTab(ModuleTab):
                 height / 2,
                 text="Run an analysis to draw the pie chart.",
                 fill=palette["subtitle_fg"],
-                font=("Segoe UI", 11),
+                font=self.app._font(11),
             )
             return
 
@@ -5480,7 +7149,7 @@ class StorageAnalyzerTab(ModuleTab):
                 height / 2,
                 text="Nothing to chart in this view.",
                 fill=palette["subtitle_fg"],
-                font=("Segoe UI", 11),
+                font=self.app._font(11),
             )
             return
 
@@ -5525,7 +7194,7 @@ class StorageAnalyzerTab(ModuleTab):
                 label_radius = radius * (0.55 if extent >= 30 else 0.68)
                 label_x = center_x + math.cos(mid_angle) * label_radius
                 label_y = center_y - math.sin(mid_angle) * label_radius
-                font_name = ("Segoe UI Semibold", 9) if extent >= 26 else ("Segoe UI", 8)
+                font_name = self.app._font(9, semibold=True) if extent >= 26 else self.app._font(8)
                 canvas.create_text(
                     label_x,
                     label_y,
@@ -5943,7 +7612,7 @@ class SubtitlesTab(ModuleTab):
 class PresetsBatchTab(ModuleTab):
     tab_name = "Presets / Batch Jobs"
 
-    PHASE1_MODULES = ["Convert", "Compress", "Extract"]
+    SUPPORTED_MODULES = ["Convert", "Compress", "Extract", "Images", "Audio", "Video"]
 
     def __init__(self, master, app: SuiteApp):
         super().__init__(master, app)
@@ -5974,7 +7643,7 @@ class PresetsBatchTab(ModuleTab):
         split.add(right, weight=2)
 
         ttk.Label(left, text="Module").pack(anchor="w", padx=10, pady=(10, 2))
-        ttk.Combobox(left, textvariable=self.module_var, values=self.PHASE1_MODULES, state="readonly").pack(fill="x", padx=10)
+        ttk.Combobox(left, textvariable=self.module_var, values=self.SUPPORTED_MODULES, state="readonly").pack(fill="x", padx=10)
         ttk.Label(left, text="Preset name").pack(anchor="w", padx=10, pady=(10, 2))
         ttk.Entry(left, textvariable=self.preset_name_var).pack(fill="x", padx=10)
         ttk.Button(left, text="Capture Current Module Settings", command=self.capture_preset).pack(fill="x", padx=10, pady=(10, 4))
@@ -6212,6 +7881,13 @@ class PresetsBatchTab(ModuleTab):
                     elif module_name == "Extract":
                         operation_key = str(config.get("operation_key", "audio_from_video"))
                         self.app.engine.extract_from_media(source, output_dir, operation_key, config)
+                    elif module_name == "Images":
+                        self.app.engine.process_image_file(source, output_dir, config)
+                    elif module_name == "Audio":
+                        self.app.engine.process_audio_file(source, output_dir, config)
+                    elif module_name == "Video":
+                        mode_key = str(config.get("mode_key", "stream_prep"))
+                        self.app.engine.process_video_file(source, output_dir, mode_key, config)
                     else:
                         failures.append(f"Unsupported module '{module_name}' in job {index}")
                 except Exception as exc:
