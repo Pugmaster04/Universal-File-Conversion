@@ -1,6 +1,6 @@
 ﻿# Universal Conversion Hub (UCH)
 
-Version: `0.7`
+Version: `0.7.1`
 
 Changelog:
 - `CHANGELOG.md` (full project history and release notes)
@@ -25,6 +25,10 @@ Advanced media modules now include:
 - Images: resize to fit, export to a chosen format, and optional sharpen pass
 - Audio: format conversion, sample-rate conversion, mono/stereo control, loudness normalization, and silence trimming
 - Video: remux, trim clips, stream-prep presets, and thumbnail-sheet generation
+
+Image conversion coverage includes:
+- Standard raster formats such as PNG, JPG, WEBP, BMP, GIF, TIFF, and ICO
+- Modern Apple/HEIF-family formats such as HEIC, HEIF, and AVIF when the bundled `pillow-heif` plugin is available
 
 This file is the combined **README + How-To** guide.
 
@@ -140,7 +144,7 @@ Example:
 
 ```json
 {
-  "latest_version": "0.7",
+  "latest_version": "0.7.1",
   "download_url": "https://example.com/UniversalConversionHub_UCH.exe",
   "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "notes": "Release notes here"

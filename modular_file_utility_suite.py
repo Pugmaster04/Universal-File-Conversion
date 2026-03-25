@@ -37,6 +37,13 @@ except Exception:
     UnidentifiedImageError = Exception
 
 try:
+    from pillow_heif import register_heif_opener
+except Exception:
+    register_heif_opener = None
+else:
+    register_heif_opener()
+
+try:
     import yaml
 except Exception:
     yaml = None
@@ -55,7 +62,7 @@ except Exception:
 APP_TITLE = "Universal Conversion Hub (UCH)"
 APP_SLUG = "UniversalConversionHubUCH"
 LEGACY_APP_SLUGS = ("UniversalConversionHubHCB", "UniversalFileUtilitySuite")
-APP_VERSION = "0.7"
+APP_VERSION = "0.7.1"
 DEFAULT_UPDATE_MANIFEST_URL = ""
 APP_EXE_BASENAME = "UniversalConversionHub_UCH"
 UPDATER_EXE_BASENAME = "UniversalConversionHub_UCH_Updater"
@@ -71,17 +78,38 @@ GUIDE_FILENAMES = (
     "README_build.txt",
 )
 
+HEIF_IMAGE_EXTS = {
+    ".heic",
+    ".heif",
+    ".avif",
+}
+
+LOSSY_IMAGE_FORMATS = {
+    "jpg",
+    "jpeg",
+    "webp",
+    "heic",
+    "heif",
+    "avif",
+}
+JPEG_LIKE_IMAGE_FORMATS = {
+    "jpg",
+    "jpeg",
+}
+
 IMAGE_EXTS = {
     ".png",
     ".jpg",
     ".jpeg",
+    ".jpe",
+    ".jfif",
     ".webp",
     ".bmp",
     ".gif",
     ".tif",
     ".tiff",
     ".ico",
-}
+} | (HEIF_IMAGE_EXTS if register_heif_opener is not None else set())
 
 AUDIO_EXTS = {
     ".mp3",
@@ -137,7 +165,9 @@ SUBTITLE_EXTS = {
     ".ssa",
 }
 
-IMAGE_FORMATS = ["png", "jpg", "webp", "bmp", "gif", "tiff", "ico"]
+IMAGE_FORMATS = ["png", "jpg", "webp", "bmp", "gif", "tiff", "ico"] + (
+    ["heic", "heif", "avif"] if register_heif_opener is not None else []
+)
 MEDIA_FORMATS = ["mp4", "mkv", "mov", "webm", "mp3", "wav", "flac", "ogg", "m4a"]
 DATA_FORMATS = ["json", "yaml", "csv", "tsv"]
 DOC_FORMATS = ["pdf", "docx", "odt", "html", "md", "txt", "epub", "rtf"]
@@ -823,8 +853,21 @@ class TaskEngine:
         target_format = requested_format.strip().lower()
         if target_format in {"", "keep", "source"}:
             target_format = source.suffix.lower().lstrip(".")
-        aliases = {"jpeg": "jpg", "tif": "tiff"}
+        aliases = {"jpeg": "jpg", "jpe": "jpg", "jfif": "jpg", "tif": "tiff", "hif": "heif"}
         return aliases.get(target_format, target_format)
+
+    @staticmethod
+    def _image_save_format_name(target_format: str) -> str:
+        return {
+            "jpg": "JPEG",
+            "jpeg": "JPEG",
+            "tif": "TIFF",
+            "tiff": "TIFF",
+            "ico": "ICO",
+            "heic": "HEIF",
+            "heif": "HEIF",
+            "avif": "AVIF",
+        }.get(target_format, target_format.upper())
 
     @staticmethod
     def _audio_codec_args(target_format: str, bitrate: str) -> list[str]:
@@ -881,6 +924,8 @@ class TaskEngine:
             elif target_format == "webp":
                 save_kwargs["quality"] = quality
                 save_kwargs["method"] = 6
+            elif target_format in {"heic", "heif", "avif"}:
+                save_kwargs["quality"] = quality
             elif target_format == "png":
                 save_kwargs["optimize"] = True
             elif target_format == "ico":
@@ -890,7 +935,7 @@ class TaskEngine:
                 if image.size != (icon_size, icon_size):
                     image = image.resize((icon_size, icon_size), resampling)
 
-            format_name = {"jpg": "JPEG", "tiff": "TIFF", "ico": "ICO"}.get(target_format, target_format.upper())
+            format_name = self._image_save_format_name(target_format)
             image.save(out_path, format=format_name, **save_kwargs)
         return out_path
 
@@ -1046,17 +1091,16 @@ class TaskEngine:
             quality = int(options.get("image_quality", 92))
             with Image.open(source) as image:
                 save_kwargs: dict[str, Any] = {}
-                if target_format in {"jpg", "jpeg", "webp"}:
-                    if image.mode in {"RGBA", "P"}:
+                if target_format in LOSSY_IMAGE_FORMATS:
+                    if target_format in JPEG_LIKE_IMAGE_FORMATS and image.mode in {"RGBA", "P"}:
                         image = image.convert("RGB")
+                    elif image.mode == "P":
+                        image = image.convert("RGBA")
                     save_kwargs["quality"] = quality
                     save_kwargs["optimize"] = True
                 if target_format == "png":
                     save_kwargs["optimize"] = True
-                format_name = {"jpg": "JPEG", "jpeg": "JPEG", "tif": "TIFF", "tiff": "TIFF", "ico": "ICO"}.get(
-                    target_format,
-                    target_format.upper(),
-                )
+                format_name = self._image_save_format_name(target_format)
                 image.save(out_path, format=format_name, **save_kwargs)
             return out_path
 
@@ -1104,14 +1148,17 @@ class TaskEngine:
             out_path = self._prepare_output_path(out_path, f"Compressed file for {source.name}")
             with Image.open(source) as image:
                 save_kwargs: dict[str, Any] = {"optimize": True}
-                if suffix in {".jpg", ".jpeg", ".webp"}:
+                normalized_suffix = self._normalized_image_format(source, suffix.lstrip("."))
+                if normalized_suffix in LOSSY_IMAGE_FORMATS:
                     save_kwargs["quality"] = quality
-                    if image.mode in {"RGBA", "P"}:
+                    if normalized_suffix in JPEG_LIKE_IMAGE_FORMATS and image.mode in {"RGBA", "P"}:
                         image = image.convert("RGB")
+                    elif image.mode == "P":
+                        image = image.convert("RGBA")
                 if suffix == ".png":
                     png_level = max(0, min(9, 9 - int(quality / 12)))
                     save_kwargs["compress_level"] = png_level
-                image.save(out_path, **save_kwargs)
+                image.save(out_path, format=self._image_save_format_name(normalized_suffix), **save_kwargs)
             return out_path
 
         ffmpeg = self.app.backends.ffmpeg
@@ -1604,7 +1651,7 @@ class SuiteApp:
 
         ttk.Label(
             outer,
-            text='Manifest example: {"latest_version":"0.7","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Manifest example: {"latest_version":"0.7.1","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=590,
             justify="left",
@@ -3114,7 +3161,7 @@ class SuiteApp:
         ttk.Entry(general_tab, textvariable=update_url_var).pack(fill="x", pady=(4, 0))
         ttk.Label(
             general_tab,
-            text='Example JSON: {"latest_version":"0.7","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Example JSON: {"latest_version":"0.7.1","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=760,
         ).pack(anchor="w", pady=(4, 0))
@@ -5753,7 +5800,7 @@ class ImagesTab(ModuleTab):
         format_combo = ttk.Combobox(
             options,
             textvariable=self.target_format,
-            values=["keep", "png", "jpg", "webp", "bmp", "tiff", "ico"],
+            values=["keep", *IMAGE_FORMATS],
             state="readonly",
             width=12,
         )
@@ -5787,7 +5834,10 @@ class ImagesTab(ModuleTab):
 
         self.add_hover_tooltip([format_label, format_combo], lambda: "Choose the export format. 'keep' keeps the current image format.")
         self.add_hover_tooltip([width_label, width_spin, height_label, height_spin], lambda: IMAGE_RESIZE_HELP_TEXT)
-        self.add_hover_tooltip([quality_label, quality_spin], lambda: "Quality applies to lossy outputs such as JPG and WEBP.")
+        self.add_hover_tooltip(
+            [quality_label, quality_spin],
+            lambda: "Quality applies to lossy outputs such as JPG, WEBP, HEIC/HEIF, and AVIF.",
+        )
         self.add_hover_tooltip([sharpen_label, sharpen_spin], lambda: IMAGE_SHARPEN_HELP_TEXT)
 
         out_row = ttk.Frame(outer)

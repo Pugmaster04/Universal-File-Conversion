@@ -7,6 +7,17 @@ This changelog includes:
 - Full `0.5` and `0.6.x` feature/fix/security/build history
 - Rapid revision trails captured in archive snapshots
 
+## [0.7.1] - 2026-03-25
+
+### Added
+- Image conversion compatibility now includes HEIC, HEIF, and AVIF through the `pillow-heif` Pillow plugin.
+- `pillow-heif` is now part of the app dependency set and release build, so modern HEIF-family image support ships with the current package set.
+
+### Changed
+- Image pipeline output choices now surface HEIC/HEIF/AVIF where that plugin is available.
+- JPEG export still flattens alpha, while alpha-capable outputs such as WEBP, HEIC/HEIF, and AVIF no longer take the same forced RGB path.
+- `0.7.1` is now the active app, updater, installer, README, and update-manifest version.
+
 ## [0.7] - 2026-03-23
 
 ### Added
