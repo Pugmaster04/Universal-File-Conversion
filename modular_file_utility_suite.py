@@ -62,7 +62,7 @@ except Exception:
 APP_TITLE = "Universal Conversion Hub (UCH)"
 APP_SLUG = "UniversalConversionHubUCH"
 LEGACY_APP_SLUGS = ("UniversalConversionHubHCB", "UniversalFileUtilitySuite")
-APP_VERSION = "0.7.1"
+APP_VERSION = "0.7.2"
 DEFAULT_UPDATE_MANIFEST_URL = ""
 APP_EXE_BASENAME = "UniversalConversionHub_UCH"
 UPDATER_EXE_BASENAME = "UniversalConversionHub_UCH_Updater"
@@ -82,6 +82,34 @@ HEIF_IMAGE_EXTS = {
     ".heic",
     ".heif",
     ".avif",
+}
+
+CAMERA_RAW_IMAGE_EXTS = {
+    ".dng",
+    ".cr2",
+    ".cr3",
+    ".nef",
+    ".nrw",
+    ".arw",
+    ".srf",
+    ".sr2",
+    ".raf",
+    ".orf",
+    ".rw2",
+    ".pef",
+    ".erf",
+    ".kdc",
+    ".mos",
+    ".iiq",
+    ".3fr",
+}
+
+IMAGEMAGICK_IMAGE_INPUT_EXTS = {
+    ".jxl",
+} | CAMERA_RAW_IMAGE_EXTS
+
+IMAGEMAGICK_IMAGE_TARGET_FORMATS = {
+    "jxl",
 }
 
 LOSSY_IMAGE_FORMATS = {
@@ -110,6 +138,8 @@ IMAGE_EXTS = {
     ".tiff",
     ".ico",
 } | (HEIF_IMAGE_EXTS if register_heif_opener is not None else set())
+
+SUPPORTED_IMAGE_INPUT_EXTS = IMAGE_EXTS | IMAGEMAGICK_IMAGE_INPUT_EXTS
 
 AUDIO_EXTS = {
     ".mp3",
@@ -165,7 +195,7 @@ SUBTITLE_EXTS = {
     ".ssa",
 }
 
-IMAGE_FORMATS = ["png", "jpg", "webp", "bmp", "gif", "tiff", "ico"] + (
+IMAGE_FORMATS = ["png", "jpg", "webp", "bmp", "gif", "tiff", "ico", "jxl"] + (
     ["heic", "heif", "avif"] if register_heif_opener is not None else []
 )
 MEDIA_FORMATS = ["mp4", "mkv", "mov", "webm", "mp3", "wav", "flac", "ogg", "m4a"]
@@ -869,6 +899,38 @@ class TaskEngine:
             "avif": "AVIF",
         }.get(target_format, target_format.upper())
 
+    def _should_use_imagemagick_for_image(self, source: Path, target_format: str) -> bool:
+        suffix = source.suffix.lower()
+        normalized_target = self._normalized_image_format(source, target_format)
+        return suffix in IMAGEMAGICK_IMAGE_INPUT_EXTS or normalized_target in IMAGEMAGICK_IMAGE_TARGET_FORMATS
+
+    def _convert_image_with_imagemagick(
+        self,
+        source: Path,
+        out_path: Path,
+        *,
+        quality: int,
+        max_width: int = 0,
+        max_height: int = 0,
+        sharpen_amount: int = 0,
+    ) -> Path:
+        magick = self.app.backends.imagemagick
+        if not magick:
+            raise RuntimeError(
+                "ImageMagick is required for JPEG XL and camera-raw image conversions. Install ImageMagick and try again."
+            )
+        cmd = [magick, f"{source}[0]", "-auto-orient"]
+        if max_width > 0 or max_height > 0:
+            width_part = str(max_width) if max_width > 0 else ""
+            height_part = str(max_height) if max_height > 0 else ""
+            cmd += ["-resize", f"{width_part}x{height_part}>"]
+        if sharpen_amount > 0:
+            sharpen_radius = max(0.3, min(4.0, sharpen_amount / 100.0))
+            cmd += ["-unsharp", f"0x{sharpen_radius:.2f}"]
+        cmd += ["-quality", str(max(1, min(100, quality))), str(out_path)]
+        self.app.run_process(cmd)
+        return out_path
+
     @staticmethod
     def _audio_codec_args(target_format: str, bitrate: str) -> list[str]:
         fmt = target_format.strip().lower()
@@ -898,6 +960,15 @@ class TaskEngine:
         sharpen_amount = max(0, min(300, int(options.get("sharpen", 0))))
         max_width = max(0, int(options.get("max_width", 0)))
         max_height = max(0, int(options.get("max_height", 0)))
+        if self._should_use_imagemagick_for_image(source, target_format):
+            return self._convert_image_with_imagemagick(
+                source,
+                out_path,
+                quality=quality,
+                max_width=max_width,
+                max_height=max_height,
+                sharpen_amount=sharpen_amount,
+            )
         resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS", getattr(Image, "LANCZOS", Image.BICUBIC))
 
         with Image.open(source) as opened:
@@ -1084,11 +1155,13 @@ class TaskEngine:
         out_path = output_dir / f"{source.stem}.{target_format}"
         suffix = source.suffix.lower()
 
-        if suffix in IMAGE_EXTS and target_format in IMAGE_FORMATS:
+        if suffix in SUPPORTED_IMAGE_INPUT_EXTS and target_format in IMAGE_FORMATS:
             if Image is None:
                 raise RuntimeError("Pillow is not installed; cannot convert image files.")
             out_path = self._prepare_output_path(out_path, f"Converted file for {source.name}")
             quality = int(options.get("image_quality", 92))
+            if self._should_use_imagemagick_for_image(source, target_format):
+                return self._convert_image_with_imagemagick(source, out_path, quality=quality)
             with Image.open(source) as image:
                 save_kwargs: dict[str, Any] = {}
                 if target_format in LOSSY_IMAGE_FORMATS:
@@ -1292,26 +1365,40 @@ class TaskEngine:
             except Exception as exc:
                 info["ffprobe_error"] = str(exc)
 
-        if Image is not None and source.suffix.lower() in IMAGE_EXTS:
-            try:
-                with Image.open(source) as image:
+        if source.suffix.lower() in SUPPORTED_IMAGE_INPUT_EXTS:
+            if Image is not None and source.suffix.lower() in IMAGE_EXTS:
+                try:
+                    with Image.open(source) as image:
+                        info["image"] = {
+                            "mode": image.mode,
+                            "width": image.width,
+                            "height": image.height,
+                            "format": image.format,
+                        }
+                        exif = image.getexif()
+                        if exif:
+                            pretty = {}
+                            for key, value in exif.items():
+                                label = str(key)
+                                pretty[label] = str(value)
+                            info["exif"] = pretty
+                except UnidentifiedImageError:
+                    info["image_error"] = "File extension looks like image but data is not recognized."
+                except Exception as exc:
+                    info["image_error"] = str(exc)
+            elif self.app.backends.imagemagick:
+                cmd = [self.app.backends.imagemagick, "identify", "-format", "%m\t%w\t%h", f"{source}[0]"]
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                    fmt, width, height = result.stdout.strip().split("\t")
                     info["image"] = {
-                        "mode": image.mode,
-                        "width": image.width,
-                        "height": image.height,
-                        "format": image.format,
+                        "mode": "unknown",
+                        "width": int(width),
+                        "height": int(height),
+                        "format": fmt,
                     }
-                    exif = image.getexif()
-                    if exif:
-                        pretty = {}
-                        for key, value in exif.items():
-                            label = str(key)
-                            pretty[label] = str(value)
-                        info["exif"] = pretty
-            except UnidentifiedImageError:
-                info["image_error"] = "File extension looks like image but data is not recognized."
-            except Exception as exc:
-                info["image_error"] = str(exc)
+                except Exception as exc:
+                    info["image_error"] = str(exc)
 
         return info
 
@@ -1651,7 +1738,7 @@ class SuiteApp:
 
         ttk.Label(
             outer,
-            text='Manifest example: {"latest_version":"0.7.1","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Manifest example: {"latest_version":"0.7.2","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=590,
             justify="left",
@@ -3161,7 +3248,7 @@ class SuiteApp:
         ttk.Entry(general_tab, textvariable=update_url_var).pack(fill="x", pady=(4, 0))
         ttk.Label(
             general_tab,
-            text='Example JSON: {"latest_version":"0.7.1","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Example JSON: {"latest_version":"0.7.2","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=760,
         ).pack(anchor="w", pady=(4, 0))
@@ -4751,11 +4838,11 @@ class ConvertTab(ModuleTab):
         return self._SUFFIX_ALIASES.get(suffix, suffix)
 
     def _supported_source_suffix(self, suffix: str) -> bool:
-        return suffix in (IMAGE_EXTS | DATA_EXTS | TEXT_EXTS | MEDIA_EXTS)
+        return suffix in (SUPPORTED_IMAGE_INPUT_EXTS | DATA_EXTS | TEXT_EXTS | MEDIA_EXTS)
 
     def _targets_for_source_suffix(self, source_suffix: str) -> list[str]:
         suffix = self._normalize_source_suffix(source_suffix)
-        if suffix in IMAGE_EXTS:
+        if suffix in SUPPORTED_IMAGE_INPUT_EXTS:
             targets = list(IMAGE_FORMATS)
         elif suffix in DATA_EXTS:
             targets = list(DATA_FORMATS)
@@ -5832,7 +5919,13 @@ class ImagesTab(ModuleTab):
         sharpen_help_label.grid(row=2, column=4, columnspan=2, sticky="w", padx=(10, 12), pady=(0, 10))
         self.inline_help_labels.extend([resize_help_label, sharpen_help_label])
 
-        self.add_hover_tooltip([format_label, format_combo], lambda: "Choose the export format. 'keep' keeps the current image format.")
+        self.add_hover_tooltip(
+            [format_label, format_combo],
+            lambda: (
+                "Choose the export format. 'keep' keeps the current image format.\n\n"
+                "JPEG XL output and camera-raw inputs use ImageMagick when that backend is available."
+            ),
+        )
         self.add_hover_tooltip([width_label, width_spin, height_label, height_spin], lambda: IMAGE_RESIZE_HELP_TEXT)
         self.add_hover_tooltip(
             [quality_label, quality_spin],
@@ -5883,15 +5976,36 @@ class ImagesTab(ModuleTab):
     def _add_images(self) -> None:
         chosen = filedialog.askopenfilenames(title="Select image files")
         if chosen:
-            self._enqueue_paths_by_extension(self.files, self.listbox, [Path(raw) for raw in chosen], IMAGE_EXTS, "selection", "image")
+            self._enqueue_paths_by_extension(
+                self.files,
+                self.listbox,
+                [Path(raw) for raw in chosen],
+                SUPPORTED_IMAGE_INPUT_EXTS,
+                "selection",
+                "image",
+            )
 
     def _add_image_folder(self) -> None:
         raw = filedialog.askdirectory(title="Select folder")
         if raw:
-            self._enqueue_paths_by_extension(self.files, self.listbox, [Path(raw)], IMAGE_EXTS, "folder", "image")
+            self._enqueue_paths_by_extension(
+                self.files,
+                self.listbox,
+                [Path(raw)],
+                SUPPORTED_IMAGE_INPUT_EXTS,
+                "folder",
+                "image",
+            )
 
     def handle_external_drop(self, paths: list[Path]) -> bool:
-        return self._enqueue_paths_by_extension(self.files, self.listbox, paths, IMAGE_EXTS, "dropped selection", "image")
+        return self._enqueue_paths_by_extension(
+            self.files,
+            self.listbox,
+            paths,
+            SUPPORTED_IMAGE_INPUT_EXTS,
+            "dropped selection",
+            "image",
+        )
 
     def run_images(self) -> None:
         if not self.files:

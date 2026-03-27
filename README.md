@@ -1,6 +1,6 @@
 ﻿# Universal Conversion Hub (UCH)
 
-Version: `0.7.1`
+Version: `0.7.2`
 
 Changelog:
 - `CHANGELOG.md` (full project history and release notes)
@@ -29,6 +29,7 @@ Advanced media modules now include:
 Image conversion coverage includes:
 - Standard raster formats such as PNG, JPG, WEBP, BMP, GIF, TIFF, and ICO
 - Modern Apple/HEIF-family formats such as HEIC, HEIF, and AVIF when the bundled `pillow-heif` plugin is available
+- JPEG XL (`.jxl`) output plus common camera-raw inputs such as DNG, CR2/CR3, NEF, ARW, RAF, ORF, RW2, and PEF through the `ImageMagick` backend
 
 This file is the combined **README + How-To** guide.
 
@@ -144,7 +145,7 @@ Example:
 
 ```json
 {
-  "latest_version": "0.7.1",
+  "latest_version": "0.7.2",
   "download_url": "https://example.com/UniversalConversionHub_UCH.exe",
   "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "notes": "Release notes here"

@@ -7,6 +7,15 @@ This changelog includes:
 - Full `0.5` and `0.6.x` feature/fix/security/build history
 - Rapid revision trails captured in archive snapshots
 
+## [0.7.2] - 2026-03-27
+
+### Added
+- Image conversion compatibility now also includes JPEG XL output plus common camera-raw inputs through the `ImageMagick` backend.
+
+### Changed
+- Convert and Images workflows now accept camera-raw inputs such as DNG, CR2/CR3, NEF, ARW, RAF, ORF, RW2, and PEF, routing them through ImageMagick when Pillow is not the right engine.
+- `0.7.2` is now the active app, updater, installer, README, and update-manifest version.
+
 ## [0.7.1] - 2026-03-25
 
 ### Added
