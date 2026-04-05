@@ -7,6 +7,14 @@ This changelog includes:
 - Full `0.5` and `0.6.x` feature/fix/security/build history
 - Rapid revision trails captured in archive snapshots
 
+## [Unreleased]
+
+## [0.7.3] - 2026-04-05
+
+### Fixed
+- `PDF / Documents` now routes image and camera-raw inputs to image-to-PDF conversion instead of sending them through office/document backends that can hang or stall on those files.
+- Windows command-line backend processes now run hidden across the app and updater instead of spawning visible console windows.
+
 ## [0.7.2] - 2026-03-27
 
 ### Added

@@ -18,7 +18,7 @@ from tkinter import BooleanVar, StringVar, filedialog, messagebox, ttk
 
 
 APP_TITLE = "Universal Conversion Hub (UCH) Updater"
-CURRENT_VERSION = "0.7.2"
+CURRENT_VERSION = "0.7.3"
 APP_SLUG = "UniversalConversionHubUCH"
 LEGACY_APP_SLUGS = ("UniversalConversionHubHCB", "UniversalFileUtilitySuite")
 SINGLE_INSTANCE_MUTEX_NAMES = (
@@ -36,6 +36,24 @@ LEGACY_WINDOW_TITLES = (
     "Universal Conversion Hub (HCB) Updater",
     "Universal File Utility Suite Updater",
 )
+
+
+def hidden_console_process_kwargs() -> dict[str, Any]:
+    if os.name != "nt":
+        return {}
+    kwargs: dict[str, Any] = {}
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if creationflags:
+        kwargs["creationflags"] = creationflags
+    startupinfo_type = getattr(subprocess, "STARTUPINFO", None)
+    use_show_window = getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    sw_hide = getattr(subprocess, "SW_HIDE", 0)
+    if startupinfo_type and use_show_window:
+        startupinfo = startupinfo_type()
+        startupinfo.dwFlags |= use_show_window
+        startupinfo.wShowWindow = sw_hide
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
 
 
 def looks_like_sha256(value: str) -> bool:
@@ -427,6 +445,7 @@ class UpdaterApp:
                     text=True,
                     timeout=8,
                     check=False,
+                    **hidden_console_process_kwargs(),
                 )
                 if int(probe.returncode) != 0:
                     continue
@@ -436,6 +455,7 @@ class UpdaterApp:
                     text=True,
                     timeout=20,
                     check=False,
+                    **hidden_console_process_kwargs(),
                 )
                 break
             except Exception:

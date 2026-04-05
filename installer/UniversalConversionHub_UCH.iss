@@ -1,5 +1,5 @@
 ﻿#define MyAppName "Universal Conversion Hub (UCH)"
-#define MyAppVersion "0.7.2"
+#define MyAppVersion "0.7.3"
 #define MyAppPublisher "Universal Conversion Hub (UCH)"
 #define MyAppExeName "UniversalConversionHub_UCH.exe"
 #define MyUpdaterExeName "UniversalConversionHub_UCH_Updater.exe"

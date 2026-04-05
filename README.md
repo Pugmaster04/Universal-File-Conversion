@@ -1,6 +1,6 @@
 ﻿# Universal Conversion Hub (UCH)
 
-Version: `0.7.2`
+Version: `0.7.3`
 
 Changelog:
 - `CHANGELOG.md` (full project history and release notes)
@@ -145,7 +145,7 @@ Example:
 
 ```json
 {
-  "latest_version": "0.7.2",
+  "latest_version": "0.7.3",
   "download_url": "https://example.com/UniversalConversionHub_UCH.exe",
   "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "notes": "Release notes here"

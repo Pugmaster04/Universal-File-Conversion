@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import threading
 import time
 import urllib.error
@@ -62,7 +63,7 @@ except Exception:
 APP_TITLE = "Universal Conversion Hub (UCH)"
 APP_SLUG = "UniversalConversionHubUCH"
 LEGACY_APP_SLUGS = ("UniversalConversionHubHCB", "UniversalFileUtilitySuite")
-APP_VERSION = "0.7.2"
+APP_VERSION = "0.7.3"
 DEFAULT_UPDATE_MANIFEST_URL = ""
 APP_EXE_BASENAME = "UniversalConversionHub_UCH"
 UPDATER_EXE_BASENAME = "UniversalConversionHub_UCH_Updater"
@@ -78,6 +79,24 @@ GUIDE_FILENAMES = (
     "README_build.txt",
 )
 
+
+def hidden_console_process_kwargs() -> dict[str, Any]:
+    if os.name != "nt":
+        return {}
+    kwargs: dict[str, Any] = {}
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if creationflags:
+        kwargs["creationflags"] = creationflags
+    startupinfo_type = getattr(subprocess, "STARTUPINFO", None)
+    use_show_window = getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    sw_hide = getattr(subprocess, "SW_HIDE", 0)
+    if startupinfo_type and use_show_window:
+        startupinfo = startupinfo_type()
+        startupinfo.dwFlags |= use_show_window
+        startupinfo.wShowWindow = sw_hide
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
+
 HEIF_IMAGE_EXTS = {
     ".heic",
     ".heif",
@@ -85,6 +104,7 @@ HEIF_IMAGE_EXTS = {
 }
 
 CAMERA_RAW_IMAGE_EXTS = {
+    ".raw",
     ".dng",
     ".cr2",
     ".cr3",
@@ -902,7 +922,40 @@ class TaskEngine:
     def _should_use_imagemagick_for_image(self, source: Path, target_format: str) -> bool:
         suffix = source.suffix.lower()
         normalized_target = self._normalized_image_format(source, target_format)
-        return suffix in IMAGEMAGICK_IMAGE_INPUT_EXTS or normalized_target in IMAGEMAGICK_IMAGE_TARGET_FORMATS
+        return normalized_target in IMAGEMAGICK_IMAGE_TARGET_FORMATS or suffix in (IMAGEMAGICK_IMAGE_INPUT_EXTS - {".raw"})
+
+    @staticmethod
+    def _ambiguous_raw_message(source: Path) -> str:
+        return (
+            f"{source.name} uses the generic .raw extension. This file can be converted if its data is a standard image "
+            "with the wrong extension, but true generic RAW pixel files do not include enough format information to open "
+            "reliably. Rename it to its real format or export it as DNG/CR2/NEF/ARW/RAF/ORF/RW2 first."
+        )
+
+    def _load_image_with_pillow(self, source: Path):
+        if Image is None:
+            raise RuntimeError("Pillow is not installed; cannot process image files.")
+        try:
+            with Image.open(source) as opened:
+                image = ImageOps.exif_transpose(opened) if ImageOps is not None else opened.copy()
+                if image is opened:
+                    image = image.copy()
+            return image
+        except UnidentifiedImageError as exc:
+            if source.suffix.lower() == ".raw":
+                raise RuntimeError(self._ambiguous_raw_message(source)) from exc
+            raise
+
+    def _prepare_imagemagick_source(self, source: Path) -> tuple[Path, tempfile.TemporaryDirectory | None]:
+        if source.suffix.lower() != ".raw":
+            return source, None
+        image = self._load_image_with_pillow(source)
+        if image.mode not in {"RGB", "RGBA", "L", "LA"}:
+            image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+        temp_dir = tempfile.TemporaryDirectory()
+        normalized = Path(temp_dir.name) / f"{source.stem}_normalized.png"
+        image.save(normalized, format="PNG")
+        return normalized, temp_dir
 
     def _convert_image_with_imagemagick(
         self,
@@ -919,17 +972,50 @@ class TaskEngine:
             raise RuntimeError(
                 "ImageMagick is required for JPEG XL and camera-raw image conversions. Install ImageMagick and try again."
             )
-        cmd = [magick, f"{source}[0]", "-auto-orient"]
-        if max_width > 0 or max_height > 0:
-            width_part = str(max_width) if max_width > 0 else ""
-            height_part = str(max_height) if max_height > 0 else ""
-            cmd += ["-resize", f"{width_part}x{height_part}>"]
-        if sharpen_amount > 0:
-            sharpen_radius = max(0.3, min(4.0, sharpen_amount / 100.0))
-            cmd += ["-unsharp", f"0x{sharpen_radius:.2f}"]
-        cmd += ["-quality", str(max(1, min(100, quality))), str(out_path)]
-        self.app.run_process(cmd)
+        magick_source, temp_dir = self._prepare_imagemagick_source(source)
+        try:
+            cmd = [magick, f"{magick_source}[0]", "-auto-orient"]
+            if max_width > 0 or max_height > 0:
+                width_part = str(max_width) if max_width > 0 else ""
+                height_part = str(max_height) if max_height > 0 else ""
+                cmd += ["-resize", f"{width_part}x{height_part}>"]
+            if sharpen_amount > 0:
+                sharpen_radius = max(0.3, min(4.0, sharpen_amount / 100.0))
+                cmd += ["-unsharp", f"0x{sharpen_radius:.2f}"]
+            cmd += ["-quality", str(max(1, min(100, quality))), str(out_path)]
+            self.app.run_process(cmd)
+        finally:
+            if temp_dir is not None:
+                temp_dir.cleanup()
         return out_path
+
+    def _convert_image_document_to_pdf(self, source: Path, final_path: Path) -> Path:
+        try:
+            image = self._load_image_with_pillow(source)
+        except UnidentifiedImageError:
+            image = None
+        if image is not None:
+            if "A" in image.getbands():
+                flattened = Image.new("RGB", image.size, (255, 255, 255))
+                flattened.paste(image, mask=image.getchannel("A"))
+                image = flattened
+            elif image.mode not in {"RGB", "L"}:
+                image = image.convert("RGB")
+            image.save(final_path, format="PDF", resolution=300.0)
+            return final_path
+
+        suffix = source.suffix.lower()
+        if self.app.backends.imagemagick and self._should_use_imagemagick_for_image(source, "pdf"):
+            cmd = [self.app.backends.imagemagick, f"{source}[0]", "-auto-orient", str(final_path)]
+            self.app.run_process(cmd)
+            return final_path
+
+        if suffix == ".raw":
+            raise RuntimeError(self._ambiguous_raw_message(source))
+
+        raise RuntimeError(
+            "PDF export for image or camera-raw files requires Pillow or ImageMagick."
+        )
 
     @staticmethod
     def _audio_codec_args(target_format: str, bitrate: str) -> list[str]:
@@ -971,10 +1057,8 @@ class TaskEngine:
             )
         resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS", getattr(Image, "LANCZOS", Image.BICUBIC))
 
-        with Image.open(source) as opened:
-            image = ImageOps.exif_transpose(opened) if ImageOps is not None else opened.copy()
-            if image is opened:
-                image = image.copy()
+        image = self._load_image_with_pillow(source)
+        try:
             if max_width > 0 or max_height > 0:
                 width_limit = max_width if max_width > 0 else image.width
                 height_limit = max_height if max_height > 0 else image.height
@@ -1008,6 +1092,11 @@ class TaskEngine:
 
             format_name = self._image_save_format_name(target_format)
             image.save(out_path, format=format_name, **save_kwargs)
+        finally:
+            try:
+                image.close()
+            except Exception:
+                pass
         return out_path
 
     def process_audio_file(self, source: Path, output_dir: Path, options: dict[str, Any]) -> Path:
@@ -1162,7 +1251,8 @@ class TaskEngine:
             quality = int(options.get("image_quality", 92))
             if self._should_use_imagemagick_for_image(source, target_format):
                 return self._convert_image_with_imagemagick(source, out_path, quality=quality)
-            with Image.open(source) as image:
+            image = self._load_image_with_pillow(source)
+            try:
                 save_kwargs: dict[str, Any] = {}
                 if target_format in LOSSY_IMAGE_FORMATS:
                     if target_format in JPEG_LIKE_IMAGE_FORMATS and image.mode in {"RGBA", "P"}:
@@ -1175,6 +1265,11 @@ class TaskEngine:
                     save_kwargs["optimize"] = True
                 format_name = self._image_save_format_name(target_format)
                 image.save(out_path, format=format_name, **save_kwargs)
+            finally:
+                try:
+                    image.close()
+                except Exception:
+                    pass
             return out_path
 
         if suffix in DATA_EXTS and target_format in DATA_FORMATS:
@@ -1360,13 +1455,19 @@ class TaskEngine:
                 str(source),
             ]
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    **hidden_console_process_kwargs(),
+                )
                 info["ffprobe"] = json.loads(result.stdout)
             except Exception as exc:
                 info["ffprobe_error"] = str(exc)
 
         if source.suffix.lower() in SUPPORTED_IMAGE_INPUT_EXTS:
-            if Image is not None and source.suffix.lower() in IMAGE_EXTS:
+            if Image is not None:
                 try:
                     with Image.open(source) as image:
                         info["image"] = {
@@ -1383,13 +1484,22 @@ class TaskEngine:
                                 pretty[label] = str(value)
                             info["exif"] = pretty
                 except UnidentifiedImageError:
-                    info["image_error"] = "File extension looks like image but data is not recognized."
+                    if source.suffix.lower() == ".raw":
+                        info["image_error"] = self._ambiguous_raw_message(source)
+                    else:
+                        info["image_error"] = "File extension looks like image but data is not recognized."
                 except Exception as exc:
                     info["image_error"] = str(exc)
             elif self.app.backends.imagemagick:
                 cmd = [self.app.backends.imagemagick, "identify", "-format", "%m\t%w\t%h", f"{source}[0]"]
                 try:
-                    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        **hidden_console_process_kwargs(),
+                    )
                     fmt, width, height = result.stdout.strip().split("\t")
                     info["image"] = {
                         "mode": "unknown",
@@ -1446,6 +1556,9 @@ class TaskEngine:
         target_format = target_format.lower()
         out_path = output_dir / f"{source.stem}.{target_format}"
         final_path = self._prepare_output_path(out_path, f"Converted document for {source.name}")
+
+        if target_format == "pdf" and source.suffix.lower() in SUPPORTED_IMAGE_INPUT_EXTS:
+            return self._convert_image_document_to_pdf(source, final_path)
 
         if self.app.backends.pandoc:
             cmd = [self.app.backends.pandoc, str(source), "-o", str(final_path)]
@@ -1738,7 +1851,7 @@ class SuiteApp:
 
         ttk.Label(
             outer,
-            text='Manifest example: {"latest_version":"0.7.2","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Manifest example: {"latest_version":"0.7.3","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=590,
             justify="left",
@@ -3248,7 +3361,7 @@ class SuiteApp:
         ttk.Entry(general_tab, textvariable=update_url_var).pack(fill="x", pady=(4, 0))
         ttk.Label(
             general_tab,
-            text='Example JSON: {"latest_version":"0.7.2","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Example JSON: {"latest_version":"0.7.3","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=760,
         ).pack(anchor="w", pady=(4, 0))
@@ -4109,6 +4222,7 @@ class SuiteApp:
             universal_newlines=True,
             encoding="utf-8",
             errors="replace",
+            **hidden_console_process_kwargs(),
         )
         tail: list[str] = []
         assert proc.stdout is not None
