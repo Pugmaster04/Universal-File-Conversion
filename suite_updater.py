@@ -56,6 +56,45 @@ def hidden_console_process_kwargs() -> dict[str, Any]:
     return kwargs
 
 
+def current_platform_key() -> str:
+    if os.name == "nt":
+        return "windows"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    return "other"
+
+
+def platform_settings_root() -> Path:
+    if current_platform_key() == "windows":
+        return Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+    xdg_config = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    if xdg_config:
+        return Path(xdg_config).expanduser()
+    return Path.home() / ".config"
+
+
+def resolve_settings_dir(root: Path, settings_filename: str) -> Path:
+    preferred = root / APP_SLUG
+    if preferred.exists():
+        return preferred
+    for legacy_slug in LEGACY_APP_SLUGS:
+        legacy_dir = root / legacy_slug
+        if (legacy_dir / settings_filename).exists():
+            return legacy_dir
+    for legacy_slug in LEGACY_APP_SLUGS:
+        legacy_dir = root / legacy_slug
+        if legacy_dir.exists():
+            return legacy_dir
+    return preferred
+
+
+def default_download_dir() -> Path:
+    downloads = Path.home() / "Downloads"
+    if downloads.exists() and downloads.is_dir():
+        return downloads
+    return Path.home()
+
+
 def looks_like_sha256(value: str) -> bool:
     candidate = value.strip().lower()
     return bool(re.fullmatch(r"[0-9a-f]{64}", candidate))
@@ -188,7 +227,7 @@ class UpdaterApp:
         self.script_dir = Path(__file__).resolve().parent
         self.resource_dir = Path(getattr(sys, "_MEIPASS", self.script_dir))
         self.runtime_dir = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else self.script_dir
-        self.local_appdata_root = Path(os.environ.get("LOCALAPPDATA", str(self.runtime_dir)))
+        self.settings_root = platform_settings_root()
         self.appdata_dir = self._resolve_appdata_dir()
         self.settings_path = self.appdata_dir / "updater_settings.json"
         self.settings = self._load_settings()
@@ -198,7 +237,7 @@ class UpdaterApp:
         saved_source = str(self.settings.get("source", "")).strip()
         self.source_var = StringVar(value=saved_source or self._default_manifest_source())
         self.version_var = StringVar(value=CURRENT_VERSION)
-        self.output_dir_var = StringVar(value=str(self.settings.get("output_dir", str(self.runtime_dir))))
+        self.output_dir_var = StringVar(value=str(self.settings.get("output_dir", str(default_download_dir()))))
         self.status_var = StringVar(value="Ready.")
         self.latest_var = StringVar(value="Latest version: (not checked)")
         self.download_var = StringVar(value="Download URL: (not checked)")
@@ -233,18 +272,7 @@ class UpdaterApp:
         self._save_settings()
 
     def _resolve_appdata_dir(self) -> Path:
-        preferred = self.local_appdata_root / APP_SLUG
-        if preferred.exists():
-            return preferred
-        for legacy_slug in LEGACY_APP_SLUGS:
-            legacy_dir = self.local_appdata_root / legacy_slug
-            if (legacy_dir / "updater_settings.json").exists():
-                return legacy_dir
-        for legacy_slug in LEGACY_APP_SLUGS:
-            legacy_dir = self.local_appdata_root / legacy_slug
-            if legacy_dir.exists():
-                return legacy_dir
-        return preferred
+        return resolve_settings_dir(self.settings_root, "updater_settings.json")
 
     def _apply_icon(self) -> None:
         candidates = [

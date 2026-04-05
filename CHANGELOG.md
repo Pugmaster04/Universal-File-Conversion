@@ -9,6 +9,11 @@ This changelog includes:
 
 ## [Unreleased]
 
+### Changed
+- Linux port groundwork now uses XDG-style config paths for app and updater settings instead of assuming `%LOCALAPPDATA%`.
+- Backend install guidance now chooses platform-appropriate commands, including Linux package-manager suggestions where supported.
+- Backend detection now checks common Linux binary locations for FFmpeg, Pandoc, LibreOffice, 7-Zip, and ImageMagick.
+
 ## [0.7.3] - 2026-04-05
 
 ### Fixed

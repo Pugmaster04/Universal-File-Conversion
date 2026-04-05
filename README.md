@@ -262,7 +262,7 @@ git config core.hooksPath .githooks
 
 ## 12) Important Paths
 
-Settings file:
+Windows settings file:
 - `%LOCALAPPDATA%\UniversalConversionHubUCH\settings.json`
 - Legacy fallback: `%LOCALAPPDATA%\UniversalConversionHubHCB\settings.json`
 - Legacy fallback: `%LOCALAPPDATA%\UniversalFileUtilitySuite\settings.json`
@@ -270,8 +270,20 @@ Settings file:
 - Updater legacy fallback: `%LOCALAPPDATA%\UniversalConversionHubHCB\updater_settings.json`
 - Updater legacy fallback: `%LOCALAPPDATA%\UniversalFileUtilitySuite\updater_settings.json`
 
+Linux settings file:
+- `$XDG_CONFIG_HOME/UniversalConversionHubUCH/settings.json`
+- Fallback: `~/.config/UniversalConversionHubUCH/settings.json`
+- Updater settings: `$XDG_CONFIG_HOME/UniversalConversionHubUCH/updater_settings.json`
+- Updater fallback: `~/.config/UniversalConversionHubUCH/updater_settings.json`
+
 Default output root:
-- `%USERPROFILE%\Documents\Universal Conversion Hub Output`
+- Windows: `%USERPROFILE%\Documents\Universal Conversion Hub Output`
+- Linux: `~/Documents/Universal Conversion Hub Output`
+- Linux fallback when `~/Documents` is absent: `~/Universal Conversion Hub Output`
+
+Updater download folder default:
+- Windows/Linux: `~/Downloads`
+- Fallback when `~/Downloads` is absent: `~`
 
 ## 13) Legal/Safety Notes
 

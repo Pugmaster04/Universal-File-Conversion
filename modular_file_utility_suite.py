@@ -97,6 +97,67 @@ def hidden_console_process_kwargs() -> dict[str, Any]:
         kwargs["startupinfo"] = startupinfo
     return kwargs
 
+
+def current_platform_key() -> str:
+    if os.name == "nt":
+        return "windows"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    return "other"
+
+
+def platform_settings_root() -> Path:
+    if current_platform_key() == "windows":
+        return Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+    xdg_config = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    if xdg_config:
+        return Path(xdg_config).expanduser()
+    return Path.home() / ".config"
+
+
+def default_output_root_path() -> Path:
+    documents = Path.home() / "Documents"
+    if documents.exists() and documents.is_dir():
+        return documents / "Universal Conversion Hub Output"
+    return Path.home() / "Universal Conversion Hub Output"
+
+
+def resolve_settings_dir(root: Path, settings_filename: str) -> Path:
+    preferred = root / APP_SLUG
+    if preferred.exists():
+        return preferred
+    for legacy_slug in LEGACY_APP_SLUGS:
+        legacy_dir = root / legacy_slug
+        if (legacy_dir / settings_filename).exists():
+            return legacy_dir
+    for legacy_slug in LEGACY_APP_SLUGS:
+        legacy_dir = root / legacy_slug
+        if legacy_dir.exists():
+            return legacy_dir
+    return preferred
+
+
+def detect_linux_package_manager() -> str:
+    for manager in ("apt", "dnf", "pacman", "zypper"):
+        if shutil.which(manager):
+            return manager
+    return ""
+
+
+def backend_install_command_for_platform(backend_name: str) -> str:
+    links = BACKEND_LINKS.get(backend_name, {})
+    platform_key = current_platform_key()
+    if platform_key == "windows":
+        return str(links.get("install_cmd_windows") or "").strip()
+    if platform_key == "linux":
+        manager = detect_linux_package_manager()
+        packages = LINUX_BACKEND_PACKAGES.get(backend_name, {}).get(manager, "")
+        template = LINUX_PACKAGE_MANAGER_COMMANDS.get(manager, "")
+        if packages and template:
+            return template.format(packages=packages)
+        return "Use your Linux package manager and the install page linked above."
+    return str(links.get("install_cmd_windows") or "").strip()
+
 HEIF_IMAGE_EXTS = {
     ".heic",
     ".heif",
@@ -275,38 +336,54 @@ BACKEND_LINKS: dict[str, dict[str, str]] = {
         "homepage": "https://ffmpeg.org/",
         "docs": "https://ffmpeg.org/documentation.html",
         "download": "https://www.gyan.dev/ffmpeg/builds/",
-        "install_cmd": "winget install --id Gyan.FFmpeg -e",
+        "install_cmd_windows": "winget install --id Gyan.FFmpeg -e",
     },
     "FFprobe": {
         "homepage": "https://ffmpeg.org/ffprobe.html",
         "docs": "https://ffmpeg.org/ffprobe.html",
         "download": "https://www.gyan.dev/ffmpeg/builds/",
-        "install_cmd": "winget install --id Gyan.FFmpeg -e",
+        "install_cmd_windows": "winget install --id Gyan.FFmpeg -e",
     },
     "Pandoc": {
         "homepage": "https://pandoc.org/",
         "docs": "https://pandoc.org/MANUAL.html",
         "download": "https://pandoc.org/installing.html",
-        "install_cmd": "winget install --id JohnMacFarlane.Pandoc -e",
+        "install_cmd_windows": "winget install --id JohnMacFarlane.Pandoc -e",
     },
     "LibreOffice": {
         "homepage": "https://www.libreoffice.org/",
         "docs": "https://help.libreoffice.org/latest/en-US/text/shared/guide/start_center.html",
         "download": "https://www.libreoffice.org/download/download-libreoffice/",
-        "install_cmd": "winget install --id TheDocumentFoundation.LibreOffice -e",
+        "install_cmd_windows": "winget install --id TheDocumentFoundation.LibreOffice -e",
     },
     "7-Zip": {
         "homepage": "https://www.7-zip.org/",
         "docs": "https://7-zip.org/7z.html",
         "download": "https://www.7-zip.org/download.html",
-        "install_cmd": "winget install --id 7zip.7zip -e",
+        "install_cmd_windows": "winget install --id 7zip.7zip -e",
     },
     "ImageMagick": {
         "homepage": "https://imagemagick.org/",
         "docs": "https://imagemagick.org/script/command-line-tools.php",
         "download": "https://imagemagick.org/script/download.php",
-        "install_cmd": "winget install --id ImageMagick.ImageMagick -e",
+        "install_cmd_windows": "winget install --id ImageMagick.ImageMagick -e",
     },
+}
+
+LINUX_BACKEND_PACKAGES: dict[str, dict[str, str]] = {
+    "FFmpeg": {"apt": "ffmpeg", "dnf": "ffmpeg", "pacman": "ffmpeg", "zypper": "ffmpeg"},
+    "FFprobe": {"apt": "ffmpeg", "dnf": "ffmpeg", "pacman": "ffmpeg", "zypper": "ffmpeg"},
+    "Pandoc": {"apt": "pandoc", "dnf": "pandoc", "pacman": "pandoc", "zypper": "pandoc"},
+    "LibreOffice": {"apt": "libreoffice", "dnf": "libreoffice", "pacman": "libreoffice-fresh", "zypper": "libreoffice"},
+    "7-Zip": {"apt": "p7zip-full", "dnf": "p7zip p7zip-plugins", "pacman": "p7zip", "zypper": "7zip"},
+    "ImageMagick": {"apt": "imagemagick", "dnf": "ImageMagick", "pacman": "imagemagick", "zypper": "ImageMagick"},
+}
+
+LINUX_PACKAGE_MANAGER_COMMANDS: dict[str, str] = {
+    "apt": "sudo apt install {packages}",
+    "dnf": "sudo dnf install {packages}",
+    "pacman": "sudo pacman -S {packages}",
+    "zypper": "sudo zypper install {packages}",
 }
 
 BACKEND_DESCRIPTIONS: dict[str, str] = {
@@ -738,41 +815,44 @@ class BackendRegistry:
     sevenzip: str | None
     imagemagick: str | None
 
+    @staticmethod
+    def _existing(path_str: str | None) -> str | None:
+        if not path_str:
+            return None
+        try:
+            path_obj = Path(path_str)
+            if path_obj.exists():
+                return str(path_obj)
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _first_existing(candidates: list[Path]) -> str | None:
+        for candidate in candidates:
+            if str(candidate):
+                try:
+                    if candidate.exists():
+                        return str(candidate)
+                except Exception:
+                    continue
+        return None
+
+    @staticmethod
+    def _first_glob(base_patterns: list[str]) -> str | None:
+        for pattern in base_patterns:
+            try:
+                matches = sorted(glob.glob(pattern, recursive=True))
+            except Exception:
+                matches = []
+            for match in matches:
+                match_path = Path(match)
+                if match_path.exists():
+                    return str(match_path)
+        return None
+
     @classmethod
     def detect(cls) -> "BackendRegistry":
-        def existing(path_str: str | None) -> str | None:
-            if not path_str:
-                return None
-            try:
-                path_obj = Path(path_str)
-                if path_obj.exists():
-                    return str(path_obj)
-            except Exception:
-                return None
-            return None
-
-        def first_existing(candidates: list[Path]) -> str | None:
-            for candidate in candidates:
-                if str(candidate):
-                    try:
-                        if candidate.exists():
-                            return str(candidate)
-                    except Exception:
-                        continue
-            return None
-
-        def first_glob(base_patterns: list[str]) -> str | None:
-            for pattern in base_patterns:
-                try:
-                    matches = sorted(glob.glob(pattern, recursive=True))
-                except Exception:
-                    matches = []
-                for match in matches:
-                    match_path = Path(match)
-                    if match_path.exists():
-                        return str(match_path)
-            return None
-
         imageio_ffmpeg_path = None
         if imageio_ffmpeg is not None:
             try:
@@ -780,81 +860,105 @@ class BackendRegistry:
             except Exception:
                 imageio_ffmpeg_path = None
 
-        ffmpeg_path = existing(shutil.which("ffmpeg") or shutil.which("ffmpeg.exe"))
+        ffmpeg_path = cls._existing(shutil.which("ffmpeg") or shutil.which("ffmpeg.exe"))
         if not ffmpeg_path:
-            ffmpeg_path = first_existing(
+            ffmpeg_path = cls._first_existing(
                 [
                     Path(os.environ.get("ProgramFiles", "")) / "ffmpeg" / "bin" / "ffmpeg.exe",
                     Path(os.environ.get("ProgramFiles(x86)", "")) / "ffmpeg" / "bin" / "ffmpeg.exe",
                     Path(os.environ.get("ProgramW6432", "")) / "ffmpeg" / "bin" / "ffmpeg.exe",
+                    Path("/usr/bin/ffmpeg"),
+                    Path("/usr/local/bin/ffmpeg"),
+                    Path("/snap/bin/ffmpeg"),
                 ]
             )
         if not ffmpeg_path:
-            ffmpeg_path = first_glob(
+            ffmpeg_path = cls._first_glob(
                 [
                     str(Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages" / "Gyan.FFmpeg_Microsoft.Winget.Source_*" / "**" / "ffmpeg.exe"),
                     str(Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages" / "FFmpeg.*_Microsoft.Winget.Source_*" / "**" / "ffmpeg.exe"),
                 ]
             )
         if not ffmpeg_path:
-            ffmpeg_path = existing(imageio_ffmpeg_path)
+            ffmpeg_path = cls._existing(imageio_ffmpeg_path)
 
-        ffprobe_path = existing(shutil.which("ffprobe") or shutil.which("ffprobe.exe"))
+        ffprobe_path = cls._existing(shutil.which("ffprobe") or shutil.which("ffprobe.exe"))
         if not ffprobe_path and ffmpeg_path:
-            ffprobe_path = first_existing([Path(ffmpeg_path).with_name("ffprobe.exe"), Path(ffmpeg_path).with_name("ffprobe")])
+            ffprobe_path = cls._first_existing([Path(ffmpeg_path).with_name("ffprobe.exe"), Path(ffmpeg_path).with_name("ffprobe")])
         if not ffprobe_path:
-            ffprobe_path = first_glob(
+            ffprobe_path = cls._first_glob(
                 [
                     str(Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages" / "Gyan.FFmpeg_Microsoft.Winget.Source_*" / "**" / "ffprobe.exe"),
                     str(Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages" / "FFmpeg.*_Microsoft.Winget.Source_*" / "**" / "ffprobe.exe"),
                 ]
             )
 
-        pandoc = existing(shutil.which("pandoc") or shutil.which("pandoc.exe"))
+        pandoc = cls._existing(shutil.which("pandoc") or shutil.which("pandoc.exe"))
         if not pandoc:
-            pandoc = first_existing(
+            pandoc = cls._first_existing(
                 [
                     Path(os.environ.get("ProgramFiles", "")) / "Pandoc" / "pandoc.exe",
                     Path(os.environ.get("ProgramFiles(x86)", "")) / "Pandoc" / "pandoc.exe",
                     Path(os.environ.get("LOCALAPPDATA", "")) / "Pandoc" / "pandoc.exe",
                     Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Pandoc" / "pandoc.exe",
+                    Path("/usr/bin/pandoc"),
+                    Path("/usr/local/bin/pandoc"),
+                    Path("/snap/bin/pandoc"),
                 ]
             )
         if not pandoc:
-            pandoc = first_glob(
+            pandoc = cls._first_glob(
                 [
                     str(Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages" / "JohnMacFarlane.Pandoc_Microsoft.Winget.Source_*" / "**" / "pandoc.exe"),
                 ]
             )
 
-        libreoffice = existing(shutil.which("soffice") or shutil.which("soffice.exe"))
+        libreoffice = cls._existing(shutil.which("soffice") or shutil.which("soffice.exe"))
         if not libreoffice:
-            libreoffice = first_existing(
+            libreoffice = cls._first_existing(
                 [
                     Path(os.environ.get("ProgramFiles", "")) / "LibreOffice" / "program" / "soffice.exe",
                     Path(os.environ.get("ProgramFiles(x86)", "")) / "LibreOffice" / "program" / "soffice.exe",
+                    Path("/usr/bin/soffice"),
+                    Path("/usr/local/bin/soffice"),
+                    Path("/usr/lib/libreoffice/program/soffice"),
                 ]
             )
 
-        sevenzip = existing(shutil.which("7z") or shutil.which("7z.exe"))
+        sevenzip = cls._existing(
+            shutil.which("7z")
+            or shutil.which("7zz")
+            or shutil.which("7z.exe")
+        )
         if not sevenzip:
-            sevenzip = first_existing(
+            sevenzip = cls._first_existing(
                 [
                     Path(os.environ.get("ProgramFiles", "")) / "7-Zip" / "7z.exe",
                     Path(os.environ.get("ProgramFiles(x86)", "")) / "7-Zip" / "7z.exe",
                     Path(os.environ.get("ProgramW6432", "")) / "7-Zip" / "7z.exe",
                     Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "7-Zip" / "7z.exe",
+                    Path("/usr/bin/7z"),
+                    Path("/usr/bin/7zz"),
+                    Path("/usr/local/bin/7z"),
+                    Path("/usr/local/bin/7zz"),
                 ]
             )
 
-        imagemagick = existing(shutil.which("magick") or shutil.which("magick.exe"))
+        imagemagick_candidates = [shutil.which("magick"), shutil.which("magick.exe")]
+        if current_platform_key() != "windows":
+            imagemagick_candidates.append(shutil.which("convert"))
+        imagemagick = cls._existing(next((candidate for candidate in imagemagick_candidates if candidate), None))
         if not imagemagick:
-            imagemagick = first_glob(
+            imagemagick = cls._first_glob(
                 [
                     str(Path(os.environ.get("ProgramFiles", "")) / "ImageMagick*" / "magick.exe"),
                     str(Path(os.environ.get("ProgramFiles(x86)", "")) / "ImageMagick*" / "magick.exe"),
                     str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "ImageMagick*" / "magick.exe"),
                     str(Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages" / "ImageMagick.ImageMagick_Microsoft.Winget.Source_*" / "**" / "magick.exe"),
+                    "/usr/bin/magick",
+                    "/usr/local/bin/magick",
+                    "/usr/bin/convert",
+                    "/usr/local/bin/convert",
                 ]
             )
 
@@ -924,6 +1028,27 @@ class TaskEngine:
         normalized_target = self._normalized_image_format(source, target_format)
         return normalized_target in IMAGEMAGICK_IMAGE_TARGET_FORMATS or suffix in (IMAGEMAGICK_IMAGE_INPUT_EXTS - {".raw"})
 
+    def _imagemagick_convert_cmd(self, source_ref: str, *args: str) -> list[str]:
+        magick = self.app.backends.imagemagick
+        if not magick:
+            raise RuntimeError("ImageMagick is required but was not detected.")
+        return [magick, source_ref, *args]
+
+    def _imagemagick_identify_cmd(self, source_ref: str, *args: str) -> list[str]:
+        magick = self.app.backends.imagemagick
+        if not magick:
+            raise RuntimeError("ImageMagick is required but was not detected.")
+        executable = Path(magick).name.lower()
+        if executable.startswith("magick"):
+            return [magick, "identify", *args, source_ref]
+        identify_path = shutil.which("identify")
+        if identify_path:
+            return [identify_path, *args, source_ref]
+        sibling = Path(magick).with_name("identify")
+        if sibling.exists():
+            return [str(sibling), *args, source_ref]
+        raise RuntimeError("ImageMagick identify command is unavailable on this system.")
+
     @staticmethod
     def _ambiguous_raw_message(source: Path) -> str:
         return (
@@ -974,7 +1099,7 @@ class TaskEngine:
             )
         magick_source, temp_dir = self._prepare_imagemagick_source(source)
         try:
-            cmd = [magick, f"{magick_source}[0]", "-auto-orient"]
+            cmd = self._imagemagick_convert_cmd(f"{magick_source}[0]", "-auto-orient")
             if max_width > 0 or max_height > 0:
                 width_part = str(max_width) if max_width > 0 else ""
                 height_part = str(max_height) if max_height > 0 else ""
@@ -1006,7 +1131,7 @@ class TaskEngine:
 
         suffix = source.suffix.lower()
         if self.app.backends.imagemagick and self._should_use_imagemagick_for_image(source, "pdf"):
-            cmd = [self.app.backends.imagemagick, f"{source}[0]", "-auto-orient", str(final_path)]
+            cmd = self._imagemagick_convert_cmd(f"{source}[0]", "-auto-orient", str(final_path))
             self.app.run_process(cmd)
             return final_path
 
@@ -1491,7 +1616,7 @@ class TaskEngine:
                 except Exception as exc:
                     info["image_error"] = str(exc)
             elif self.app.backends.imagemagick:
-                cmd = [self.app.backends.imagemagick, "identify", "-format", "%m\t%w\t%h", f"{source}[0]"]
+                cmd = self._imagemagick_identify_cmd(f"{source}[0]", "-format", "%m\t%w\t%h")
                 try:
                     result = subprocess.run(
                         cmd,
@@ -1663,7 +1788,7 @@ class SuiteApp:
         self.script_dir = Path(__file__).resolve().parent
         self.resource_dir = Path(getattr(sys, "_MEIPASS", self.script_dir))
         self.runtime_dir = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else self.script_dir
-        self.local_appdata_root = Path(os.environ.get("LOCALAPPDATA", str(self.runtime_dir)))
+        self.settings_root = platform_settings_root()
         self.appdata_dir = self._resolve_appdata_dir()
         ensure_dir(self.appdata_dir)
 
@@ -1725,21 +1850,10 @@ class SuiteApp:
         self._show_main_window_after_startup()
 
     def _resolve_appdata_dir(self) -> Path:
-        preferred = self.local_appdata_root / APP_SLUG
-        if preferred.exists():
-            return preferred
-        for legacy_slug in LEGACY_APP_SLUGS:
-            legacy_dir = self.local_appdata_root / legacy_slug
-            if (legacy_dir / "settings.json").exists():
-                return legacy_dir
-        for legacy_slug in LEGACY_APP_SLUGS:
-            legacy_dir = self.local_appdata_root / legacy_slug
-            if legacy_dir.exists():
-                return legacy_dir
-        return preferred
+        return resolve_settings_dir(self.settings_root, "settings.json")
 
     def _default_settings(self) -> dict[str, Any]:
-        default_output = Path.home() / "Documents" / "Universal Conversion Hub Output"
+        default_output = default_output_root_path()
         return {
             "first_run_done": False,
             "dark_mode": False,
@@ -3003,8 +3117,7 @@ class SuiteApp:
         return str(links.get("download") or links.get("homepage") or links.get("docs") or "").strip()
 
     def _backend_install_command(self, backend_name: str) -> str:
-        links = BACKEND_LINKS.get(backend_name, {})
-        return str(links.get("install_cmd") or "").strip()
+        return backend_install_command_for_platform(backend_name)
 
     def _missing_backend_names(self) -> list[str]:
         return [name for name, value in self.backends.as_rows() if value == "Not found"]
@@ -4693,7 +4806,7 @@ class BackendLinksTab(ModuleTab):
                 "homepage": links.get("homepage", ""),
                 "docs": links.get("docs", ""),
                 "download": links.get("download", ""),
-                "install_cmd": links.get("install_cmd", ""),
+                "install_cmd": self.app._backend_install_command(backend_name),
                 "detected_path": path_value if path_value != "Not found" else "",
             }
         if self.tree.get_children():
