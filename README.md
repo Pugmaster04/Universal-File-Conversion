@@ -191,6 +191,11 @@ Linux outputs:
 - `dist/UniversalConversionHub_UCH_Updater`
 - `release_bins/UniversalConversionHub_UCH`
 - `release_bins/UniversalConversionHub_UCH_Updater`
+- `release_bins/UniversalConversionHub_UCH_linux_<arch>.tar.gz`
+
+Linux release packaging:
+- `build_linux.sh` now stages raw Linux binaries and creates a release tarball named `UniversalConversionHub_UCH_linux_<arch>.tar.gz`
+- The updater branch logic prefers Linux `.AppImage` or `.tar.gz` assets on Linux instead of Windows `.exe` assets
 
 ### Basic dependencies
 

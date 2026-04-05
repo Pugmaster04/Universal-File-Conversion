@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -93,6 +94,17 @@ def default_download_dir() -> Path:
     if downloads.exists() and downloads.is_dir():
         return downloads
     return Path.home()
+
+
+def current_arch_markers() -> tuple[str, ...]:
+    machine = platform.machine().strip().lower()
+    mapping = {
+        "x86_64": ("x86_64", "amd64"),
+        "amd64": ("amd64", "x86_64"),
+        "aarch64": ("aarch64", "arm64"),
+        "arm64": ("arm64", "aarch64"),
+    }
+    return mapping.get(machine, (machine,) if machine else tuple())
 
 
 def looks_like_sha256(value: str) -> bool:
@@ -520,23 +532,45 @@ class UpdaterApp:
             url = str(asset.get("browser_download_url") or "").strip()
             if not name or not url:
                 continue
-            normalized.append((name.lower(), name, url))
+            lower = name.lower()
+            if lower.endswith((".sha256", ".sha256sum", ".sha256.txt", ".checksums", ".checksum", ".sig")):
+                continue
+            normalized.append((lower, name, url))
         if not normalized:
             return "", ""
 
-        priority_checks = [
-            lambda lower: lower.endswith(".exe") and "setup" in lower,
-            lambda lower: lower.endswith(".exe")
-            and (
-                "universalconversionhub" in lower
-                or "hcb" in lower
-                or "universalfileutilitysuite" in lower
+        def is_primary_app_asset(lower: str) -> bool:
+            return (
+                "updater" not in lower
+                and (
+                    "universalconversionhub" in lower
+                    or "hcb" in lower
+                    or "universalfileutilitysuite" in lower
+                )
             )
-            and "updater" not in lower,
-            lambda lower: lower.endswith(".exe") and "updater" not in lower,
-            lambda lower: lower.endswith(".exe"),
-            lambda _lower: True,
-        ]
+
+        platform_key = current_platform_key()
+        arch_markers = current_arch_markers()
+
+        if platform_key == "linux":
+            priority_checks = [
+                lambda lower: lower.endswith(".appimage") and "linux" in lower and is_primary_app_asset(lower) and any(marker in lower for marker in arch_markers),
+                lambda lower: lower.endswith(".tar.gz") and "linux" in lower and is_primary_app_asset(lower) and any(marker in lower for marker in arch_markers),
+                lambda lower: lower.endswith(".appimage") and "linux" in lower and is_primary_app_asset(lower),
+                lambda lower: lower.endswith(".tar.gz") and "linux" in lower and is_primary_app_asset(lower),
+                lambda lower: "linux" in lower and is_primary_app_asset(lower),
+                lambda lower: lower.endswith((".appimage", ".tar.gz")) and is_primary_app_asset(lower),
+                lambda lower: is_primary_app_asset(lower) and not lower.endswith(".exe"),
+                lambda _lower: True,
+            ]
+        else:
+            priority_checks = [
+                lambda lower: lower.endswith(".exe") and "setup" in lower,
+                lambda lower: lower.endswith(".exe") and is_primary_app_asset(lower),
+                lambda lower: lower.endswith(".exe") and "updater" not in lower,
+                lambda lower: lower.endswith(".exe"),
+                lambda _lower: True,
+            ]
         for rule in priority_checks:
             for lower_name, name, url in normalized:
                 if rule(lower_name):
