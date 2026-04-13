@@ -25,7 +25,7 @@ import webbrowser
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import tkinter as tk
 from tkinter import END, SINGLE, BooleanVar, IntVar, StringVar, filedialog, messagebox, ttk
@@ -810,6 +810,7 @@ class HoverCard:
 
 @dataclass
 class BackendRegistry:
+    _cached: ClassVar["BackendRegistry | None"] = None
     ffmpeg: str | None
     ffprobe: str | None
     pandoc: str | None
@@ -854,7 +855,13 @@ class BackendRegistry:
         return None
 
     @classmethod
-    def detect(cls) -> "BackendRegistry":
+    def clear_cache(cls) -> None:
+        cls._cached = None
+
+    @classmethod
+    def detect(cls, force_refresh: bool = False) -> "BackendRegistry":
+        if not force_refresh and cls._cached is not None:
+            return cls._cached
         imageio_ffmpeg_path = None
         if imageio_ffmpeg is not None:
             try:
@@ -964,7 +971,7 @@ class BackendRegistry:
                 ]
             )
 
-        return cls(
+        registry = cls(
             ffmpeg=ffmpeg_path,
             ffprobe=ffprobe_path,
             pandoc=pandoc,
@@ -972,6 +979,8 @@ class BackendRegistry:
             sevenzip=sevenzip,
             imagemagick=imagemagick,
         )
+        cls._cached = registry
+        return registry
 
     def as_rows(self) -> list[tuple[str, str]]:
         return [
@@ -3211,6 +3220,11 @@ class SuiteApp:
             "Open the Backends / Links tab to review detected paths, install sources, docs, and commands."
         )
 
+    def _refresh_backends(self, force_refresh: bool = False) -> BackendRegistry:
+        self.backends = BackendRegistry.detect(force_refresh=force_refresh)
+        self._set_backend_summary_status()
+        return self.backends
+
     def _refresh_hover_tooltip_preferences(self) -> None:
         for hover_card in list(self.backend_hover_cards):
             hover_card.refresh_enabled_state()
@@ -3244,7 +3258,7 @@ class SuiteApp:
         return len(blocks)
 
     def _open_backend_install_assistant(self, backend_names: list[str] | None = None) -> None:
-        self.backends = BackendRegistry.detect()
+        self._refresh_backends(force_refresh=True)
         missing = self._missing_backend_names()
         targets = list(backend_names) if backend_names is not None else missing
         targets = [name for name in targets if name in BACKEND_LINKS]
@@ -3336,7 +3350,7 @@ class SuiteApp:
     def _prompt_install_missing_backends_on_startup(self) -> None:
         if not bool(self.settings.get("prompt_backend_install_on_startup", True)):
             return
-        self.backends = BackendRegistry.detect()
+        self._refresh_backends(force_refresh=True)
         missing = self._missing_backend_names()
         if not missing:
             return
@@ -4825,7 +4839,7 @@ class BackendLinksTab(ModuleTab):
         self.apply_inline_help_visibility(self.inline_help_labels)
 
     def _populate(self) -> None:
-        self.app.backends = BackendRegistry.detect()
+        self.app._refresh_backends(force_refresh=True)
         rows = self.app.backends.as_rows()
         self.backend_data.clear()
         for item in self.tree.get_children():

@@ -12,6 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,34 @@ def hidden_console_process_kwargs() -> dict[str, Any]:
         startupinfo.wShowWindow = sw_hide
         kwargs["startupinfo"] = startupinfo
     return kwargs
+
+
+@lru_cache(maxsize=1)
+def resolve_git_executable() -> str:
+    candidates: list[str] = ["git"]
+    if os.name == "nt":
+        candidates.extend(
+            [
+                r"C:\Program Files\Git\cmd\git.exe",
+                r"C:\Program Files\Git\bin\git.exe",
+                r"C:\Users\Pugma\AppData\Local\GitHubDesktop\app-3.5.6\resources\app\git\cmd\git.exe",
+            ]
+        )
+    for git_cmd in candidates:
+        try:
+            probe = subprocess.run(
+                [git_cmd, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
+                **hidden_console_process_kwargs(),
+            )
+        except Exception:
+            continue
+        if int(probe.returncode) == 0:
+            return git_cmd
+    return ""
 
 
 def current_platform_key() -> str:
@@ -469,39 +498,19 @@ class UpdaterApp:
         return ""
 
     def _latest_tag_from_git_remote(self, remote_url: str) -> str:
-        commands: list[str] = ["git"]
-        if os.name == "nt":
-            commands.extend(
-                [
-                    r"C:\Program Files\Git\cmd\git.exe",
-                    r"C:\Program Files\Git\bin\git.exe",
-                ]
+        git_cmd = resolve_git_executable()
+        if not git_cmd:
+            return ""
+        try:
+            result = subprocess.run(
+                [git_cmd, "ls-remote", "--tags", "--refs", remote_url],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+                **hidden_console_process_kwargs(),
             )
-        result = None
-        for git_cmd in commands:
-            try:
-                probe = subprocess.run(
-                    [git_cmd, "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=8,
-                    check=False,
-                    **hidden_console_process_kwargs(),
-                )
-                if int(probe.returncode) != 0:
-                    continue
-                result = subprocess.run(
-                    [git_cmd, "ls-remote", "--tags", "--refs", remote_url],
-                    capture_output=True,
-                    text=True,
-                    timeout=20,
-                    check=False,
-                    **hidden_console_process_kwargs(),
-                )
-                break
-            except Exception:
-                continue
-        if result is None:
+        except Exception:
             return ""
         if int(result.returncode) != 0:
             return ""
