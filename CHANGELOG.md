@@ -13,6 +13,7 @@ This changelog includes:
 - New `Torrents` workspace tab for creating `.torrent` files in-app and downloading/extracting torrent contents through the optional `Aria2` backend.
 - New dedicated `Aria2` workspace category with a `Downloads` tab for direct aria2-managed HTTP(S), FTP, SFTP, BitTorrent, magnet, and Metalink transfers.
 - Torrent sources opened in `Torrents` now expose file-level selection with search, select-all/select-none, toggle controls, and a per-torrent progress view with individual file progress bars.
+- `Aria2 -> Downloads` and `Aria2 -> Torrents` now include inline pause/stop controls plus state badges so active transfer state is visible without adding more modal workflow interruptions.
 
 ### Changed
 - Backend detection/install guidance now also includes `Aria2` for torrent download workflows.
@@ -20,6 +21,7 @@ This changelog includes:
 - The `Torrents` tab now shows a persistent safety disclaimer warning users to only download trusted content and clarifying that the app does not accept responsibility for damage caused by torrent sources or downloaded data.
 - Release documentation and version constants now explicitly follow the `X.0` / `X.Y` / `X.Y.Z` versioning policy for major, secondary, and patch updates.
 - Startup loading now minimizes itself if the splash loses focus; fullscreen launches restore automatically when loading finishes, while windowed launches stay minimized and flash the taskbar instead of stealing focus.
+- Windowed drag strips now derive their top-bar color from the dominant color in the current Windows wallpaper, so the custom title area matches the desktop more closely.
 
 ## [0.7.3] - 2026-04-05
 
