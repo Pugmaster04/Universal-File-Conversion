@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>universal-conversion-hub-uch.desktop</id>
+  <id>io.github.Pugmaster04.UniversalConversionHub.desktop</id>
   <name>Universal Conversion Hub (UCH)</name>
   <summary>Universal file conversion and utility workspace</summary>
   <metadata_license>MIT</metadata_license>
-  <project_license>Proprietary</project_license>
-  <developer id="github.com/Pugmaster04">
+  <project_license>LicenseRef-Proprietary</project_license>
+  <developer id="io.github.Pugmaster04">
     <name>Pugmaster04</name>
   </developer>
+  <url type="homepage">https://github.com/Pugmaster04/Universal-File-Conversion</url>
   <description>
     <p>
       Universal Conversion Hub provides conversion, extraction, metadata editing,
@@ -15,7 +16,7 @@
       in a single desktop application.
     </p>
   </description>
-  <launchable type="desktop-id">universal-conversion-hub-uch.desktop</launchable>
+  <launchable type="desktop-id">io.github.Pugmaster04.UniversalConversionHub.desktop</launchable>
   <provides>
     <binary>universal-conversion-hub-uch</binary>
     <binary>universal-conversion-hub-uch-updater</binary>

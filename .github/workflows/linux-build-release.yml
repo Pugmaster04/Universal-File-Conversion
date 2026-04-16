@@ -60,7 +60,7 @@ jobs:
           test -x deb-smoke/usr/bin/universal-conversion-hub-uch-updater
           test -x deb-smoke/opt/universal-conversion-hub-uch/UniversalConversionHub_UCH
           test -x deb-smoke/opt/universal-conversion-hub-uch/UniversalConversionHub_UCH_Updater
-          test -f deb-smoke/usr/share/applications/universal-conversion-hub-uch.desktop
+          test -f deb-smoke/usr/share/applications/io.github.Pugmaster04.UniversalConversionHub.desktop
           test -f deb-smoke/usr/share/pixmaps/universal-conversion-hub-uch.png
 
       - name: Upload Linux build artifacts
