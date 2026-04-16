@@ -26,6 +26,7 @@ This changelog includes:
 - App and updater entrypoints now expose `--version` and `--smoke-test` CLI modes so Linux CI can validate the frozen binaries headlessly after build.
 - The `Torrents` tab now shows a persistent safety disclaimer warning users to only download trusted content and clarifying that the app does not accept responsibility for damage caused by torrent sources or downloaded data.
 - Release documentation and version constants now explicitly follow the `X.0` / `X.Y` / `X.Y.Z` versioning policy for major, secondary, and patch updates.
+- Startup loading now minimizes itself if the splash loses focus; fullscreen launches restore automatically when loading finishes, while windowed launches stay minimized and flash the taskbar instead of stealing focus.
 
 ## [0.7.3] - 2026-04-05
 

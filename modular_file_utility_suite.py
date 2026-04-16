@@ -571,6 +571,35 @@ def _focus_existing_window() -> None:
         return
 
 
+def _flash_window_taskbar_attention(window: tk.Misc, count: int = 6) -> None:
+    if os.name != "nt":
+        return
+    try:
+        hwnd = int(window.winfo_id())
+        if not hwnd:
+            return
+
+        class FLASHWINFO(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", ctypes.c_uint),
+                ("hwnd", ctypes.c_void_p),
+                ("dwFlags", ctypes.c_uint),
+                ("uCount", ctypes.c_uint),
+                ("dwTimeout", ctypes.c_uint),
+            ]
+
+        flash = FLASHWINFO(
+            cbSize=ctypes.sizeof(FLASHWINFO),
+            hwnd=ctypes.c_void_p(hwnd),
+            dwFlags=0x00000002,  # FLASHW_TRAY
+            uCount=max(1, int(count)),
+            dwTimeout=0,
+        )
+        ctypes.windll.user32.FlashWindowEx(ctypes.byref(flash))
+    except Exception:
+        return
+
+
 def _acquire_single_instance_mutex() -> tuple[bool, Any | None]:
     if os.name == "nt":
         try:
@@ -1903,6 +1932,10 @@ class SuiteApp:
         self._startup_window_shown = False
         self._startup_tasks_scheduled = False
         self._startup_update_flow_handled = False
+        self._startup_animation_active = False
+        self._startup_splash_hidden_by_focus_loss = False
+        self._startup_taskbar_attention_pending = False
+        self._startup_deferred_tasks_pending = False
         self.tabs: dict[str, ttk.Frame] = {}
         self.top_notebook: ttk.Notebook | None = None
         self.notebook: ttk.Notebook | None = None
@@ -1924,6 +1957,7 @@ class SuiteApp:
         self._normal_zoomed = False
         self._window_mode_state = "normal"
         self.root.bind("<Configure>", self._on_root_window_configured, add="+")
+        self.root.bind("<FocusIn>", self._on_root_focus_in, add="+")
         self.root.bind("<F11>", self._on_f11_toggle)
         self.root.bind("<F10>", self._on_f10_toggle_borderless)
         self.root.bind("<Escape>", self._on_escape_exit_fullscreen)
@@ -2816,6 +2850,14 @@ class SuiteApp:
         if self._window_mode_state == "normal":
             self._capture_normal_window_state()
         self._update_window_drag_strip_visibility()
+
+    def _on_root_focus_in(self, _event=None) -> None:
+        if not self._startup_taskbar_attention_pending:
+            return
+        self._startup_taskbar_attention_pending = False
+        if self._startup_deferred_tasks_pending:
+            self._startup_deferred_tasks_pending = False
+            self.root.after(120, self._schedule_startup_tasks_once)
 
     def _apply_window_mode_state(self) -> None:
         fullscreen = bool(self.fullscreen_var.get())
@@ -4177,6 +4219,8 @@ class SuiteApp:
     def _run_startup_update_flow(self) -> None:
         if not bool(self.settings.get("check_updates_on_startup", True)):
             return
+        if self._startup_splash_hidden_by_focus_loss:
+            return
         self._startup_update_flow_handled = True
         self.settings["last_update_check"] = time.strftime("%Y-%m-%d %H:%M:%S")
         self._save_settings()
@@ -4231,6 +4275,8 @@ class SuiteApp:
                 self._show_main_window_after_startup()
             return
 
+        self._startup_animation_active = True
+        self._startup_splash_hidden_by_focus_loss = False
         splash = tk.Toplevel(self.root)
         splash.withdraw()
         splash.overrideredirect(True)
@@ -4283,6 +4329,27 @@ class SuiteApp:
         duration = max(1.0, min(20.0, duration))
         spin_cycles = 1.6
         pulse_cycles = 1.2
+        focus_loss_enabled = {"value": False}
+
+        def on_focus_out(_event=None) -> None:
+            if not focus_loss_enabled["value"]:
+                return
+            if not self._startup_animation_active or self._startup_splash_hidden_by_focus_loss:
+                return
+            if not splash.winfo_exists():
+                return
+            self._startup_splash_hidden_by_focus_loss = True
+            self._startup_deferred_tasks_pending = True
+            try:
+                splash.withdraw()
+            except Exception:
+                pass
+            try:
+                self.root.withdraw()
+            except Exception:
+                pass
+
+        splash.bind("<FocusOut>", on_focus_out, add="+")
 
         def tick() -> None:
             if not splash.winfo_exists():
@@ -4301,6 +4368,7 @@ class SuiteApp:
             if ratio < 1.0:
                 splash.after(16, tick)
                 return
+            self._startup_animation_active = False
             splash.destroy()
             if show_main_when_done:
                 self._show_main_window_after_startup()
@@ -4308,9 +4376,17 @@ class SuiteApp:
         splash.update_idletasks()
         splash.deiconify()
         splash.lift()
+        try:
+            splash.focus_force()
+        except Exception:
+            pass
+        splash.after(220, lambda: focus_loss_enabled.__setitem__("value", True))
         splash.after(20, tick)
         if modal:
-            self.root.wait_window(splash)
+            try:
+                self.root.wait_window(splash)
+            finally:
+                self._startup_animation_active = False
 
     def _center_window_on_screen(self, window: tk.Misc) -> None:
         try:
@@ -4389,13 +4465,23 @@ class SuiteApp:
         if self._startup_window_shown:
             return
         self._startup_window_shown = True
-        if not bool(self.fullscreen_var.get()) and not bool(self.borderless_max_var.get()):
+        fullscreen_like = bool(self.fullscreen_var.get()) or bool(self.borderless_max_var.get())
+        if not fullscreen_like:
             self.root.geometry(self._calculate_display_matched_geometry())
             self._center_window_on_screen(self.root)
             self._normal_geometry = self.root.geometry()
             self._normal_zoomed = False
         self._apply_window_mode_state()
         self.root.deiconify()
+        if self._startup_splash_hidden_by_focus_loss and not fullscreen_like:
+            self.root.update_idletasks()
+            try:
+                self.root.iconify()
+            except Exception:
+                pass
+            self._startup_taskbar_attention_pending = True
+            _flash_window_taskbar_attention(self.root)
+            return
         self.root.lift()
         self.root.focus_force()
         self._schedule_startup_tasks_once()
