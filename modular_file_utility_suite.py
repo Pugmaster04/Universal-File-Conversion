@@ -496,6 +496,36 @@ def human_size(value: int) -> str:
     return f"{value} B"
 
 
+def _darken_hex_color(color: str, factor: float = 0.78) -> str:
+    red = int(color[1:3], 16)
+    green = int(color[3:5], 16)
+    blue = int(color[5:7], 16)
+    return f"#{int(red * factor):02x}{int(green * factor):02x}{int(blue * factor):02x}"
+
+
+def _contrast_text_hex(color: str) -> str:
+    red = int(color[1:3], 16)
+    green = int(color[3:5], 16)
+    blue = int(color[5:7], 16)
+    luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
+    return "#101722" if luminance > 165 else "#F7FAFF"
+
+
+def session_state_style(state: str) -> str:
+    normalized = str(state or "").strip().lower()
+    if normalized == "running":
+        return "StatusRunning.Badge.TLabel"
+    if normalized == "paused":
+        return "StatusPaused.Badge.TLabel"
+    if normalized == "stopping":
+        return "StatusStopping.Badge.TLabel"
+    if normalized == "complete":
+        return "StatusComplete.Badge.TLabel"
+    if normalized in {"error", "failed"}:
+        return "StatusError.Badge.TLabel"
+    return "StatusIdle.Badge.TLabel"
+
+
 def is_archive_input_path(path: Path) -> bool:
     lower_name = path.name.lower()
     return path.suffix.lower() in ARCHIVE_INPUT_EXTS or lower_name.endswith((".tar.gz", ".tar.bz2", ".tar.xz"))
@@ -1967,6 +1997,7 @@ class SuiteApp:
         self.settings_path = self.appdata_dir / "settings.json"
         self.settings = self._load_settings()
         self._refresh_paths_from_settings()
+        self._window_bar_color_override = self._resolve_window_bar_color_override()
 
         self.status_left_var = StringVar(value="Ready.")
         self.status_right_var = StringVar(value="")
@@ -2346,6 +2377,40 @@ class SuiteApp:
     def reduced_motion_enabled(self) -> bool:
         return bool(self.settings.get("reduce_motion", False))
 
+    def _resolve_window_bar_color_override(self) -> str | None:
+        if os.name != "nt" or Image is None:
+            return None
+        candidates: list[Path] = []
+        appdata = Path(os.environ.get("APPDATA", ""))
+        if appdata:
+            candidates.append(appdata / "Microsoft" / "Windows" / "Themes" / "TranscodedWallpaper")
+        try:
+            import winreg  # type: ignore
+
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Desktop") as key:
+                wallpaper_path, _ = winreg.QueryValueEx(key, "WallPaper")
+                if wallpaper_path:
+                    candidates.append(Path(str(wallpaper_path)))
+        except Exception:
+            pass
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = str(candidate).lower()
+            if not key or key in seen or not candidate.exists():
+                continue
+            seen.add(key)
+            try:
+                with Image.open(candidate) as image:
+                    dominant = image.convert("RGB").resize((64, 64)).convert("P", palette=Image.ADAPTIVE, colors=8).convert("RGB")
+                    colors = dominant.getcolors(64 * 64) or []
+                    if not colors:
+                        continue
+                    _, (red, green, blue) = max(colors, key=lambda item: item[0])
+                    return f"#{red:02x}{green:02x}{blue:02x}"
+            except Exception:
+                continue
+        return None
+
     def _configure_styles(self) -> None:
         base_font_size = self._scaled(10)
         self.root.option_add("*Font", f"{{Segoe UI}} {base_font_size}")
@@ -2427,6 +2492,9 @@ class SuiteApp:
                 "log_border": "#314252",
                 "backend_detected_fg": "#A8D5FF",
                 "backend_missing_fg": "#FFB178",
+                "window_bar_bg": "#203246",
+                "window_bar_fg": "#9FB1C8",
+                "window_bar_border": "#182636",
             }
         else:
             palette = {
@@ -2471,6 +2539,9 @@ class SuiteApp:
             "log_border": "#CFD8E6",
             "backend_detected_fg": "#005A9E",
             "backend_missing_fg": "#B42318",
+            "window_bar_bg": "#E7EEF8",
+            "window_bar_fg": "#5A6C84",
+            "window_bar_border": "#C8D5E8",
         }
         if self.high_contrast_enabled():
             if dark_mode:
@@ -2508,6 +2579,9 @@ class SuiteApp:
                         "log_border": "#4D627C",
                         "backend_detected_fg": "#BDE0FF",
                         "backend_missing_fg": "#FFC58A",
+                        "window_bar_bg": "#17365A",
+                        "window_bar_fg": "#F3F8FF",
+                        "window_bar_border": "#254E7B",
                     }
                 )
             else:
@@ -2542,8 +2616,15 @@ class SuiteApp:
                         "log_bg": "#FFFFFF",
                         "log_fg": "#081C33",
                         "log_border": "#889BB3",
+                        "window_bar_bg": "#D9E8F8",
+                        "window_bar_fg": "#0E2845",
+                        "window_bar_border": "#AFC4DD",
                     }
                 )
+        if self._window_bar_color_override:
+            palette["window_bar_bg"] = self._window_bar_color_override
+            palette["window_bar_fg"] = _contrast_text_hex(self._window_bar_color_override)
+            palette["window_bar_border"] = _darken_hex_color(self._window_bar_color_override)
         return palette
 
     def _apply_theme(self, dark_mode: bool) -> None:
@@ -2640,7 +2721,7 @@ class SuiteApp:
         self.style.configure("SurfaceInset.TFrame", background=palette["surface_alt_bg"])
         self.style.configure("Card.TFrame", background=palette["card_bg"])
         self.style.configure("HeaderCard.TFrame", background=palette["card_bg"])
-        self.style.configure("DragStrip.TFrame", background=palette["accent_soft_bg"], borderwidth=1, relief="solid")
+        self.style.configure("DragStrip.TFrame", background=palette["window_bar_bg"], borderwidth=1, relief="solid", bordercolor=palette["window_bar_border"])
         self.style.configure("Card.TLabelframe", background=palette["card_bg"], borderwidth=1, relief="solid", bordercolor=palette["card_border"])
         self.style.configure("Card.TLabelframe.Label", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(10, semibold=True))
         self.style.configure("QuickGroup.TLabelframe", background=palette["card_bg"], borderwidth=1, relief="solid", bordercolor=palette["card_border"])
@@ -2650,8 +2731,24 @@ class SuiteApp:
         self.style.configure("HeaderMeta.TLabel", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(10, semibold=True))
         self.style.configure("CardBody.TLabel", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(10))
         self.style.configure("CardMuted.TLabel", background=palette["card_bg"], foreground=palette["muted_fg"], font=self._font(9))
-        self.style.configure("DragStrip.TLabel", background=palette["accent_soft_bg"], foreground=palette["muted_fg"], font=self._font(8, semibold=True))
+        self.style.configure("DragStrip.TLabel", background=palette["window_bar_bg"], foreground=palette["window_bar_fg"], font=self._font(8, semibold=True))
         self.style.configure("Badge.TLabel", background=palette["accent_soft_bg"], foreground=palette["tab_sel_fg"], font=self._font(9, semibold=True), padding=(self._scaled(8), self._scaled(4)))
+        badge_specs = {
+            "StatusIdle.Badge.TLabel": (palette["status_bg"], palette["status_fg"]),
+            "StatusRunning.Badge.TLabel": (palette["accent_bg"], palette["accent_fg"]),
+            "StatusPaused.Badge.TLabel": (("#6C4A00", "#FFF1CF") if dark_mode else ("#FFF0BF", "#6A4300")),
+            "StatusStopping.Badge.TLabel": (("#6B2F00", "#FFE0C2") if dark_mode else ("#FFE0C2", "#7A3300")),
+            "StatusComplete.Badge.TLabel": (("#1B5E3A", "#E8FFF1") if dark_mode else ("#DDF7E9", "#145B35")),
+            "StatusError.Badge.TLabel": (("#7A1F2A", "#FFE3E8") if dark_mode else ("#FBE0E4", "#8B1E2F")),
+        }
+        for style_name, (background, foreground) in badge_specs.items():
+            self.style.configure(
+                style_name,
+                background=background,
+                foreground=foreground,
+                font=self._font(9, semibold=True),
+                padding=(self._scaled(8), self._scaled(4)),
+            )
         self.style.configure(
             "BackendDetectedLink.TLabel",
             background=palette["card_bg"],
@@ -8586,9 +8683,15 @@ class Aria2DownloadsTab(ModuleTab):
         self.uri_var = StringVar(value="")
         self.output_dir = StringVar(value=str(self.app.default_output_root / "aria2" / "downloads"))
         self.status_var = StringVar(value="Ready.")
+        self.session_state_var = StringVar(value="Idle")
         self.progress_var = IntVar(value=0)
         self.progress_text_var = StringVar(value="0%")
         self.download_process: subprocess.Popen[str] | None = None
+        self.download_rpc_port: int | None = None
+        self.start_button: ttk.Button | None = None
+        self.pause_button: ttk.Button | None = None
+        self.stop_button: ttk.Button | None = None
+        self.session_state_label: ttk.Label | None = None
         self.download_cancel_requested = threading.Event()
         self._build()
 
@@ -8654,8 +8757,12 @@ class Aria2DownloadsTab(ModuleTab):
             side="left",
             padx=(6, 0),
         )
-        ttk.Button(folder_row, text="Start Download", command=self.start_download).pack(side="right")
-        ttk.Button(folder_row, text="Cancel", command=self.cancel_download).pack(side="right", padx=(0, 6))
+        self.start_button = ttk.Button(folder_row, text="Start Download", style="PrimaryApp.TButton", command=self.start_download)
+        self.start_button.pack(side="right")
+        self.pause_button = ttk.Button(folder_row, text="Pause", style="QuietApp.TButton", command=self.toggle_pause_download, state="disabled")
+        self.pause_button.pack(side="right", padx=(0, 6))
+        self.stop_button = ttk.Button(folder_row, text="Stop", style="QuietApp.TButton", command=self.cancel_download, state="disabled")
+        self.stop_button.pack(side="right", padx=(0, 6))
 
         info_box = ttk.LabelFrame(outer, text="Supported Inputs")
         info_box.pack(fill="x", pady=(0, 8))
@@ -8671,10 +8778,13 @@ class Aria2DownloadsTab(ModuleTab):
 
         progress_row = ttk.Frame(outer)
         progress_row.pack(fill="x", pady=(0, 4))
+        self.session_state_label = ttk.Label(progress_row, textvariable=self.session_state_var, style=session_state_style("Idle"))
+        self.session_state_label.pack(side="left", padx=(0, 8))
         ttk.Progressbar(progress_row, variable=self.progress_var, maximum=100).pack(side="left", fill="x", expand=True)
         ttk.Label(progress_row, textvariable=self.progress_text_var).pack(side="left", padx=(8, 0))
 
         ttk.Label(outer, textvariable=self.status_var).pack(anchor="w")
+        self._sync_control_states()
 
     def _add_source(self, value: str) -> bool:
         text = str(value).strip()
@@ -8754,6 +8864,62 @@ class Aria2DownloadsTab(ModuleTab):
         self.progress_text_var.set(f"{bounded}%")
         self.status_var.set(status)
 
+    def _set_session_state(self, value: str) -> None:
+        self.session_state_var.set(value)
+        self._sync_control_states()
+
+    def _sync_control_states(self) -> None:
+        state = self.session_state_var.get()
+        active = state in {"Running", "Paused", "Stopping"}
+        pausable = state in {"Running", "Paused"}
+        if self.start_button is not None:
+            self.start_button.configure(state="disabled" if active else "normal")
+        if self.pause_button is not None:
+            self.pause_button.configure(state="normal" if pausable else "disabled", text="Resume" if state == "Paused" else "Pause")
+        if self.stop_button is not None:
+            self.stop_button.configure(state="normal" if active else "disabled")
+        if self.session_state_label is not None:
+            self.session_state_label.configure(style=session_state_style(state))
+
+    def _aria2_rpc_call(self, method: str, params: list[Any] | None = None) -> Any:
+        if not self.download_rpc_port:
+            return None
+        payload = {
+            "jsonrpc": "2.0",
+            "id": "uch-aria2",
+            "method": f"aria2.{method}",
+            "params": params or [],
+        }
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.download_rpc_port}/jsonrpc",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=1.5) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        return data.get("result") if isinstance(data, dict) else None
+
+    def toggle_pause_download(self) -> None:
+        process = self.download_process
+        if not process or process.poll() is not None or not self.download_rpc_port:
+            self.status_var.set("No active aria2 download to pause.")
+            return
+        try:
+            if self.session_state_var.get() == "Paused":
+                self._aria2_rpc_call("unpauseAll")
+                self._set_session_state("Running")
+                if self.pause_button is not None:
+                    self.pause_button.configure(text="Pause")
+                self.status_var.set("Resumed aria2 download.")
+            else:
+                self._aria2_rpc_call("pauseAll")
+                self._set_session_state("Paused")
+                if self.pause_button is not None:
+                    self.pause_button.configure(text="Resume")
+                self.status_var.set("Paused aria2 download.")
+        except Exception as exc:
+            self.status_var.set(f"Pause/resume failed: {exc}")
+
     def start_download(self) -> None:
         if self.worker and self.worker.is_alive():
             messagebox.showwarning(APP_TITLE, "An aria2 download is already running.")
@@ -8772,7 +8938,11 @@ class Aria2DownloadsTab(ModuleTab):
         ensure_dir(destination)
         sources = list(self.sources)
         self.download_cancel_requested.clear()
+        self.download_rpc_port = reserve_local_tcp_port()
         self._set_progress(0, "Starting aria2 download...")
+        self._set_session_state("Running")
+        if self.pause_button is not None:
+            self.pause_button.configure(text="Pause", state="normal")
 
         def work() -> None:
             cmd = [
@@ -8788,6 +8958,9 @@ class Aria2DownloadsTab(ModuleTab):
                 "--follow-metalink=true",
                 "--bt-save-metadata=true",
                 "--seed-time=0",
+                "--enable-rpc=true",
+                "--rpc-listen-all=false",
+                f"--rpc-listen-port={self.download_rpc_port}",
                 *sources,
             ]
             self.log(f"Running aria2 command: {quote_cmd(cmd)}")
@@ -8819,6 +8992,7 @@ class Aria2DownloadsTab(ModuleTab):
                 code = proc.wait()
             finally:
                 self.download_process = None
+                self.download_rpc_port = None
             if self.download_cancel_requested.is_set():
                 raise OperationCanceledError("Aria2 download canceled.")
             if code != 0:
@@ -8831,13 +9005,20 @@ class Aria2DownloadsTab(ModuleTab):
     def _run_download_worker(self, action) -> None:
         try:
             action()
+            self.app.call_ui(lambda: self._set_session_state("Complete"))
             self.app.info("Aria2 download finished.")
         except OperationCanceledError as exc:
             self.log(str(exc))
+            self.app.call_ui(lambda: self._set_session_state("Stopped"))
             self.app.call_ui(lambda: self.status_var.set(str(exc)))
         except Exception as exc:
             self.log(f"Error: {exc}")
+            self.app.call_ui(lambda: self._set_session_state("Error"))
             self.app.error(f"Aria2 download failed:\n{exc}")
+        finally:
+            self.download_rpc_port = None
+            if self.pause_button is not None:
+                self.app.call_ui(lambda: self.pause_button.configure(text="Pause", state="disabled"))
 
     def cancel_download(self) -> None:
         self.download_cancel_requested.set()
@@ -8847,8 +9028,10 @@ class Aria2DownloadsTab(ModuleTab):
                 process.terminate()
             except Exception:
                 pass
+            self._set_session_state("Stopping")
             self.status_var.set("Canceling aria2 download...")
         else:
+            self._set_session_state("Idle")
             self.status_var.set("No aria2 download is currently running.")
 
     def handle_external_drop(self, paths: list[Path]) -> bool:
@@ -8881,9 +9064,15 @@ class TorrentsTab(ModuleTab):
         self.progress_entry_var = StringVar(value="")
         self.file_search_var = StringVar(value="")
         self.status_var = StringVar(value="Ready.")
+        self.session_state_var = StringVar(value="Idle")
         self.progress_var = IntVar(value=0)
         self.progress_text_var = StringVar(value="0%")
         self.download_process: subprocess.Popen[str] | None = None
+        self.download_rpc_port: int | None = None
+        self.start_button: ttk.Button | None = None
+        self.pause_button: ttk.Button | None = None
+        self.stop_button: ttk.Button | None = None
+        self.session_state_label: ttk.Label | None = None
         self.download_cancel_requested = threading.Event()
         self._progress_rows_frame: ttk.Frame | None = None
         self._progress_canvas: tk.Canvas | None = None
@@ -9026,11 +9215,17 @@ class TorrentsTab(ModuleTab):
             side="left",
             padx=(6, 0),
         )
-        ttk.Button(folder_row, text="Start Download", command=self.start_download).pack(side="right")
-        ttk.Button(folder_row, text="Cancel", command=self.cancel_download).pack(side="right", padx=(0, 6))
+        self.start_button = ttk.Button(folder_row, text="Start Download", style="PrimaryApp.TButton", command=self.start_download)
+        self.start_button.pack(side="right")
+        self.pause_button = ttk.Button(folder_row, text="Pause", style="QuietApp.TButton", command=self.toggle_pause_download, state="disabled")
+        self.pause_button.pack(side="right", padx=(0, 6))
+        self.stop_button = ttk.Button(folder_row, text="Stop", style="QuietApp.TButton", command=self.cancel_download, state="disabled")
+        self.stop_button.pack(side="right", padx=(0, 6))
 
         progress_row = ttk.Frame(download_box)
         progress_row.pack(fill="x", padx=10, pady=(0, 10))
+        self.session_state_label = ttk.Label(progress_row, textvariable=self.session_state_var, style=session_state_style("Idle"))
+        self.session_state_label.pack(side="left", padx=(0, 8))
         ttk.Progressbar(progress_row, variable=self.progress_var, maximum=100).pack(side="left", fill="x", expand=True)
         ttk.Label(progress_row, textvariable=self.progress_text_var).pack(side="left", padx=(8, 0))
 
@@ -9067,6 +9262,7 @@ class TorrentsTab(ModuleTab):
 
         ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(8, 0))
         self._refresh_entry_views()
+        self._sync_control_states()
 
     def _on_progress_rows_configured(self, _event=None) -> None:
         if self._progress_canvas is not None:
@@ -9367,6 +9563,23 @@ class TorrentsTab(ModuleTab):
         self.progress_text_var.set(f"{bounded}%")
         self.status_var.set(status)
 
+    def _set_session_state(self, value: str) -> None:
+        self.session_state_var.set(value)
+        self._sync_control_states()
+
+    def _sync_control_states(self) -> None:
+        state = self.session_state_var.get()
+        active = state in {"Running", "Paused", "Stopping"}
+        pausable = state in {"Running", "Paused"}
+        if self.start_button is not None:
+            self.start_button.configure(state="disabled" if active else "normal")
+        if self.pause_button is not None:
+            self.pause_button.configure(state="normal" if pausable else "disabled", text="Resume" if state == "Paused" else "Pause")
+        if self.stop_button is not None:
+            self.stop_button.configure(state="normal" if active else "disabled")
+        if self.session_state_label is not None:
+            self.session_state_label.configure(style=session_state_style(state))
+
     def _aria2_rpc_call(self, port: int, method: str, params: list[Any] | None = None) -> Any:
         payload = {
             "jsonrpc": "2.0",
@@ -9384,6 +9597,27 @@ class TorrentsTab(ModuleTab):
         if isinstance(data, dict) and "result" in data:
             return data["result"]
         return None
+
+    def toggle_pause_download(self) -> None:
+        process = self.download_process
+        if not process or process.poll() is not None or not self.download_rpc_port:
+            self.status_var.set("No active torrent download to pause.")
+            return
+        try:
+            if self.session_state_var.get() == "Paused":
+                self._aria2_rpc_call(self.download_rpc_port, "unpauseAll")
+                self._set_session_state("Running")
+                if self.pause_button is not None:
+                    self.pause_button.configure(text="Pause")
+                self.status_var.set("Resumed torrent download.")
+            else:
+                self._aria2_rpc_call(self.download_rpc_port, "pauseAll")
+                self._set_session_state("Paused")
+                if self.pause_button is not None:
+                    self.pause_button.configure(text="Resume")
+                self.status_var.set("Paused torrent download.")
+        except Exception as exc:
+            self.status_var.set(f"Pause/resume failed: {exc}")
 
     def _choose_status_task(self, tasks: list[dict[str, Any]]) -> dict[str, Any] | None:
         if not tasks:
@@ -9511,6 +9745,9 @@ class TorrentsTab(ModuleTab):
         entries = list(self.download_entries)
         self.download_cancel_requested.clear()
         self._set_download_progress(0, "Starting torrent download...")
+        self._set_session_state("Running")
+        if self.pause_button is not None:
+            self.pause_button.configure(text="Pause", state="normal")
 
         def work() -> None:
             completed = 0
@@ -9528,6 +9765,7 @@ class TorrentsTab(ModuleTab):
                         item.status = "Skipped"
                 self.app.call_ui(self._refresh_entry_views)
                 rpc_port = reserve_local_tcp_port()
+                self.download_rpc_port = rpc_port
                 cmd = [
                     aria2,
                     "--dir",
@@ -9579,6 +9817,7 @@ class TorrentsTab(ModuleTab):
                     code = proc.wait()
                     reader.join(timeout=2)
                     self.download_process = None
+                    self.download_rpc_port = None
                 self._poll_entry_progress(rpc_port, entry, destination)
                 if self.download_cancel_requested.is_set():
                     raise OperationCanceledError("Torrent download canceled.")
@@ -9601,13 +9840,20 @@ class TorrentsTab(ModuleTab):
     def _run_download_worker(self, action) -> None:
         try:
             action()
+            self.app.call_ui(lambda: self._set_session_state("Complete"))
             self.app.info("Torrent download finished.")
         except OperationCanceledError as exc:
             self.log(str(exc))
+            self.app.call_ui(lambda: self._set_session_state("Stopped"))
             self.app.call_ui(lambda: self.status_var.set(str(exc)))
         except Exception as exc:
             self.log(f"Error: {exc}")
+            self.app.call_ui(lambda: self._set_session_state("Error"))
             self.app.error(f"{self.tab_name} failed:\n{exc}")
+        finally:
+            self.download_rpc_port = None
+            if self.pause_button is not None:
+                self.app.call_ui(lambda: self.pause_button.configure(text="Pause", state="disabled"))
 
     def cancel_download(self) -> None:
         self.download_cancel_requested.set()
@@ -9617,8 +9863,10 @@ class TorrentsTab(ModuleTab):
                 process.terminate()
             except Exception:
                 pass
+            self._set_session_state("Stopping")
             self.status_var.set("Canceling torrent download...")
         else:
+            self._set_session_state("Idle")
             self.status_var.set("No torrent download is currently running.")
 
     def handle_external_drop(self, paths: list[Path]) -> bool:
