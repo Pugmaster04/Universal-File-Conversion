@@ -9,6 +9,11 @@ This changelog includes:
 
 ## [Unreleased]
 
+### Added
+- New `Torrents` workspace tab for creating `.torrent` files in-app and downloading/extracting torrent contents through the optional `Aria2` backend.
+
+### Changed
+- Backend detection/install guidance now also includes `Aria2` for torrent download workflows.
 ## [0.7.3] - 2026-04-05
 
 ### Fixed
@@ -244,4 +249,3 @@ This changelog includes:
 - Rapid binary iteration cycle in Downloads workspace while core UI/packaging foundations were being established.
 - Artifacts from this stage were later archived and superseded by the canonical `v0.5` source/build process in:
   - `C:\Users\Pugma\Documents\Universal File Utility Suite Output\Universal-File-Conversion`
-
