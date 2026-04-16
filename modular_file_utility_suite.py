@@ -61,6 +61,11 @@ try:
 except Exception:
     windnd = None
 
+try:
+    from torrentool.api import Torrent
+except Exception:
+    Torrent = None
+
 
 APP_TITLE = "Universal Conversion Hub (UCH)"
 APP_SLUG = "UniversalConversionHubUCH"
@@ -80,6 +85,9 @@ GUIDE_FILENAMES = (
     "HOW_TO_Universal_File_Utility_Suite.txt",
     "README_build.txt",
 )
+
+TORRENT_SOURCE_EXTS = {".torrent"}
+ARIA2_PROGRESS_RE = re.compile(r"\((\d+)%\)")
 
 
 def hidden_console_process_kwargs() -> dict[str, Any]:
@@ -370,6 +378,12 @@ BACKEND_LINKS: dict[str, dict[str, str]] = {
         "download": "https://imagemagick.org/script/download.php",
         "install_cmd_windows": "winget install --id ImageMagick.ImageMagick -e",
     },
+    "Aria2": {
+        "homepage": "https://aria2.github.io/",
+        "docs": "https://aria2.github.io/manual/en/html/aria2c.html",
+        "download": "https://github.com/aria2/aria2/releases",
+        "install_cmd_windows": "winget install --id aria2.aria2 -e",
+    },
 }
 
 LINUX_BACKEND_PACKAGES: dict[str, dict[str, str]] = {
@@ -379,6 +393,7 @@ LINUX_BACKEND_PACKAGES: dict[str, dict[str, str]] = {
     "LibreOffice": {"apt": "libreoffice", "dnf": "libreoffice", "pacman": "libreoffice-fresh", "zypper": "libreoffice"},
     "7-Zip": {"apt": "p7zip-full", "dnf": "p7zip p7zip-plugins", "pacman": "p7zip", "zypper": "7zip"},
     "ImageMagick": {"apt": "imagemagick", "dnf": "ImageMagick", "pacman": "imagemagick", "zypper": "ImageMagick"},
+    "Aria2": {"apt": "aria2", "dnf": "aria2", "pacman": "aria2", "zypper": "aria2"},
 }
 
 LINUX_PACKAGE_MANAGER_COMMANDS: dict[str, str] = {
@@ -395,7 +410,16 @@ BACKEND_DESCRIPTIONS: dict[str, str] = {
     "LibreOffice": "Fallback document conversion engine for office file formats.",
     "7-Zip": "Archive utility backend for broader archive format support.",
     "ImageMagick": "Image processing backend for advanced transform and format workflows.",
+    "Aria2": "Torrent download backend used to fetch and extract torrent contents with no speed cap flags applied.",
 }
+
+
+def is_torrent_source_path(path: Path) -> bool:
+    return path.suffix.lower() in TORRENT_SOURCE_EXTS
+
+
+def is_magnet_uri(value: str) -> bool:
+    return str(value).strip().lower().startswith("magnet:?")
 
 SINGLE_INSTANCE_MUTEX_NAMES = (
     "Local\\UniversalConversionHubUCH_SingleInstanceMutex",
@@ -817,6 +841,7 @@ class BackendRegistry:
     libreoffice: str | None
     sevenzip: str | None
     imagemagick: str | None
+    aria2: str | None
 
     @staticmethod
     def _existing(path_str: str | None) -> str | None:
@@ -971,6 +996,26 @@ class BackendRegistry:
                 ]
             )
 
+        aria2 = cls._existing(shutil.which("aria2c") or shutil.which("aria2c.exe"))
+        if not aria2:
+            aria2 = cls._first_existing(
+                [
+                    Path(os.environ.get("ProgramFiles", "")) / "aria2" / "aria2c.exe",
+                    Path(os.environ.get("ProgramFiles(x86)", "")) / "aria2" / "aria2c.exe",
+                    Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "aria2" / "aria2c.exe",
+                    Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links" / "aria2c.exe",
+                    Path("/usr/bin/aria2c"),
+                    Path("/usr/local/bin/aria2c"),
+                    Path("/snap/bin/aria2c"),
+                ]
+            )
+        if not aria2:
+            aria2 = cls._first_glob(
+                [
+                    str(Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages" / "aria2.aria2_Microsoft.Winget.Source_*" / "**" / "aria2c.exe"),
+                ]
+            )
+
         registry = cls(
             ffmpeg=ffmpeg_path,
             ffprobe=ffprobe_path,
@@ -978,6 +1023,7 @@ class BackendRegistry:
             libreoffice=libreoffice,
             sevenzip=sevenzip,
             imagemagick=imagemagick,
+            aria2=aria2,
         )
         cls._cached = registry
         return registry
@@ -990,6 +1036,7 @@ class BackendRegistry:
             ("LibreOffice", self.libreoffice or "Not found"),
             ("7-Zip", self.sevenzip or "Not found"),
             ("ImageMagick", self.imagemagick or "Not found"),
+            ("Aria2", self.aria2 or "Not found"),
         ]
 
 
@@ -3016,6 +3063,7 @@ class SuiteApp:
                     ("Storage Analyzer", StorageAnalyzerTab),
                     ("Checksums / Integrity", ChecksumsTab),
                     ("Subtitles", SubtitlesTab),
+                    ("Torrents", TorrentsTab),
                     ("Presets / Batch Jobs", PresetsBatchTab),
                 ],
             ),
@@ -8350,6 +8398,335 @@ class SubtitlesTab(ModuleTab):
 
     def handle_external_drop(self, paths: list[Path]) -> bool:
         return self._add_dropped_file_paths(self.files, self.listbox, paths, expand_directories=True)
+
+
+class TorrentsTab(ModuleTab):
+    tab_name = "Torrents"
+
+    def __init__(self, master, app: SuiteApp):
+        super().__init__(master, app)
+        self.download_items: list[str] = []
+        self.magnet_var = StringVar(value="")
+        self.download_dir = StringVar(value=str(self.app.default_output_root / "torrents" / "downloads"))
+        self.create_source = StringVar(value="")
+        self.torrent_output = StringVar(value=str(self.app.default_output_root / "torrents" / "new_download.torrent"))
+        self.comment_var = StringVar(value="")
+        self.private_var = BooleanVar(value=False)
+        self.status_var = StringVar(value="Ready.")
+        self.progress_var = IntVar(value=0)
+        self.progress_text_var = StringVar(value="0%")
+        self.download_process: subprocess.Popen[str] | None = None
+        self.download_cancel_requested = threading.Event()
+        self._build()
+
+    def _build(self) -> None:
+        outer = ttk.Frame(self, padding=10)
+        outer.pack(fill="both", expand=True)
+        ttk.Label(
+            outer,
+            text=(
+                "Create .torrent files directly in-app. Torrent download/extraction uses the optional Aria2 backend. "
+                "This workflow does not apply any download speed limit flags."
+            ),
+            wraplength=1200,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        download_box = ttk.LabelFrame(outer, text="Download / Extract Torrent Contents")
+        download_box.pack(fill="both", expand=True, pady=(0, 8))
+
+        download_controls = ttk.Frame(download_box)
+        download_controls.pack(fill="x", padx=10, pady=(10, 6))
+        ttk.Button(download_controls, text="Add Torrent Files", command=self.add_torrent_files).pack(side="left")
+        ttk.Button(download_controls, text="Remove Selected", command=self.remove_selected_sources).pack(side="left", padx=(6, 0))
+        ttk.Button(download_controls, text="Clear", command=self.clear_sources).pack(side="left", padx=(6, 0))
+        ttk.Label(download_controls, text="Magnet").pack(side="left", padx=(18, 6))
+        ttk.Entry(download_controls, textvariable=self.magnet_var).pack(side="left", fill="x", expand=True)
+        ttk.Button(download_controls, text="Add Magnet", command=self.add_magnet_link).pack(side="left", padx=(6, 0))
+
+        queue = ttk.Frame(download_box)
+        queue.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        self.listbox = tk.Listbox(queue, selectmode=SINGLE)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(queue, orient="vertical", command=self.listbox.yview)
+        scroll.pack(side="right", fill="y")
+        self.listbox.configure(yscrollcommand=scroll.set)
+
+        folder_row = ttk.Frame(download_box)
+        folder_row.pack(fill="x", padx=10, pady=(0, 8))
+        ttk.Label(folder_row, text="Download folder").pack(side="left")
+        ttk.Entry(folder_row, textvariable=self.download_dir).pack(side="left", fill="x", expand=True, padx=(8, 8))
+        ttk.Button(folder_row, text="Browse", command=lambda: self.choose_output_dir(self.download_dir, "Choose torrent download folder")).pack(side="left")
+        ttk.Button(folder_row, text="Open", command=lambda: self.app._open_path(Path(self.download_dir.get().strip() or str(self.app.default_output_root)))).pack(
+            side="left",
+            padx=(6, 0),
+        )
+        ttk.Button(folder_row, text="Start Download", command=self.start_download).pack(side="right")
+        ttk.Button(folder_row, text="Cancel", command=self.cancel_download).pack(side="right", padx=(0, 6))
+
+        progress_row = ttk.Frame(download_box)
+        progress_row.pack(fill="x", padx=10, pady=(0, 10))
+        ttk.Progressbar(progress_row, variable=self.progress_var, maximum=100).pack(side="left", fill="x", expand=True)
+        ttk.Label(progress_row, textvariable=self.progress_text_var).pack(side="left", padx=(8, 0))
+
+        create_box = ttk.LabelFrame(outer, text="Create Torrent File")
+        create_box.pack(fill="x")
+
+        source_row = ttk.Frame(create_box)
+        source_row.pack(fill="x", padx=10, pady=(10, 6))
+        ttk.Label(source_row, text="Source").pack(side="left")
+        ttk.Entry(source_row, textvariable=self.create_source).pack(side="left", fill="x", expand=True, padx=(8, 8))
+        ttk.Button(source_row, text="File", command=self.pick_create_source_file).pack(side="left")
+        ttk.Button(source_row, text="Folder", command=self.pick_create_source_folder).pack(side="left", padx=(6, 0))
+
+        output_row = ttk.Frame(create_box)
+        output_row.pack(fill="x", padx=10, pady=(0, 6))
+        ttk.Label(output_row, text="Torrent file").pack(side="left")
+        ttk.Entry(output_row, textvariable=self.torrent_output).pack(side="left", fill="x", expand=True, padx=(8, 8))
+        ttk.Button(output_row, text="Save As", command=self.pick_torrent_output).pack(side="left")
+
+        comment_row = ttk.Frame(create_box)
+        comment_row.pack(fill="x", padx=10, pady=(0, 6))
+        ttk.Label(comment_row, text="Comment").pack(side="left")
+        ttk.Entry(comment_row, textvariable=self.comment_var).pack(side="left", fill="x", expand=True, padx=(8, 8))
+        ttk.Checkbutton(comment_row, text="Private torrent", variable=self.private_var).pack(side="left")
+
+        ttk.Label(create_box, text="Trackers (one per line)").pack(anchor="w", padx=10)
+        self.trackers_box = ScrolledText(create_box, height=5, wrap="word")
+        self.trackers_box.pack(fill="x", padx=10, pady=(4, 8))
+        self.trackers_box.insert("1.0", "https://tracker.opentrackr.org:1337/announce")
+
+        create_actions = ttk.Frame(create_box)
+        create_actions.pack(fill="x", padx=10, pady=(0, 10))
+        ttk.Button(create_actions, text="Create Torrent", command=self.create_torrent).pack(side="right")
+
+        ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(8, 0))
+
+    def _add_download_source(self, value: str) -> bool:
+        text = str(value).strip()
+        if not text:
+            return False
+        if text in self.download_items:
+            return False
+        self.download_items.append(text)
+        self.listbox.insert(END, text)
+        return True
+
+    def add_torrent_files(self) -> None:
+        chosen = filedialog.askopenfilenames(title="Select torrent files", filetypes=[("Torrent files", "*.torrent"), ("All files", "*.*")])
+        for raw in chosen:
+            path = Path(raw)
+            if path.exists() and is_torrent_source_path(path):
+                self._add_download_source(str(path))
+
+    def add_magnet_link(self) -> None:
+        magnet = self.magnet_var.get().strip()
+        if not magnet:
+            messagebox.showwarning(APP_TITLE, "Enter a magnet link first.")
+            return
+        if not is_magnet_uri(magnet):
+            messagebox.showwarning(APP_TITLE, "Magnet links must start with magnet:?.")
+            return
+        if self._add_download_source(magnet):
+            self.magnet_var.set("")
+
+    def remove_selected_sources(self) -> None:
+        selected = list(self.listbox.curselection())
+        selected.reverse()
+        for index in selected:
+            self.listbox.delete(index)
+            self.download_items.pop(index)
+
+    def clear_sources(self) -> None:
+        self.download_items.clear()
+        self.listbox.delete(0, END)
+
+    def pick_create_source_file(self) -> None:
+        chosen = filedialog.askopenfilename(title="Select file to package into a torrent")
+        if chosen:
+            path = Path(chosen)
+            self.create_source.set(str(path))
+            self.torrent_output.set(str(path.with_suffix(".torrent")))
+
+    def pick_create_source_folder(self) -> None:
+        chosen = filedialog.askdirectory(title="Select folder to package into a torrent")
+        if chosen:
+            path = Path(chosen)
+            self.create_source.set(str(path))
+            self.torrent_output.set(str(path.parent / f"{path.name}.torrent"))
+
+    def pick_torrent_output(self) -> None:
+        chosen = filedialog.asksaveasfilename(
+            title="Save torrent as",
+            defaultextension=".torrent",
+            filetypes=[("Torrent files", "*.torrent"), ("All files", "*.*")],
+        )
+        if chosen:
+            self.torrent_output.set(chosen)
+
+    def _tracker_list(self) -> list[str]:
+        raw = self.trackers_box.get("1.0", "end").strip()
+        trackers: list[str] = []
+        for line in raw.splitlines():
+            for part in line.split(","):
+                item = part.strip()
+                if item:
+                    trackers.append(item)
+        return trackers
+
+    def create_torrent(self) -> None:
+        if Torrent is None:
+            messagebox.showerror(APP_TITLE, "The torrentool Python dependency is not installed.")
+            return
+        source = Path(self.create_source.get().strip())
+        if not source.exists():
+            messagebox.showwarning(APP_TITLE, "Choose a file or folder to package into a torrent.")
+            return
+        output_path = Path(self.torrent_output.get().strip() or str(source.with_suffix(".torrent")))
+        if output_path.suffix.lower() != ".torrent":
+            output_path = output_path.with_suffix(".torrent")
+        trackers = self._tracker_list()
+        comment = self.comment_var.get().strip()
+        private = bool(self.private_var.get())
+
+        def work() -> None:
+            resolved = self.app.resolve_output_path(output_path, context=f"Torrent file for {source.name}")
+            if resolved is None:
+                raise RuntimeError("Operation canceled by user.")
+            ensure_dir(resolved.parent)
+            torrent = Torrent.create_from(source)
+            if trackers:
+                torrent.announce_urls = [[tracker] for tracker in trackers]
+            if comment:
+                torrent.comment = comment
+            torrent.private = private
+            torrent.to_file(str(resolved))
+            self.log(f"Created torrent: {resolved}")
+            self.app.call_ui(lambda: self.status_var.set(f"Created torrent: {resolved.name}"))
+
+        self.run_async(work, done_message=f"Torrent created: {output_path}")
+
+    def _set_download_progress(self, percent: int, status: str) -> None:
+        self.progress_var.set(max(0, min(100, percent)))
+        self.progress_text_var.set(f"{max(0, min(100, percent))}%")
+        self.status_var.set(status)
+
+    def start_download(self) -> None:
+        if self.worker and self.worker.is_alive():
+            messagebox.showwarning(APP_TITLE, "Torrent download is already running.")
+            return
+        if not self.download_items:
+            messagebox.showwarning(APP_TITLE, "Add at least one torrent file or magnet link first.")
+            return
+        aria2 = self.app.backends.aria2
+        if not aria2:
+            messagebox.showwarning(
+                APP_TITLE,
+                "Aria2 was not detected. Install the Aria2 backend to download and extract torrent contents.",
+            )
+            return
+        destination = Path(self.download_dir.get().strip())
+        ensure_dir(destination)
+        sources = list(self.download_items)
+        self.download_cancel_requested.clear()
+        self._set_download_progress(0, "Starting torrent download...")
+
+        def work() -> None:
+            cmd = [
+                aria2,
+                "--dir",
+                str(destination),
+                "--summary-interval=1",
+                "--console-log-level=notice",
+                "--seed-time=0",
+                "--bt-save-metadata=true",
+                "--follow-torrent=true",
+                "--enable-dht=true",
+                "--enable-peer-exchange=true",
+                "--check-integrity=true",
+            ]
+            cmd.extend(sources)
+            self.log(f"$ {quote_cmd(cmd)}")
+            last_detail = "Starting torrent transfer..."
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                universal_newlines=True,
+                encoding="utf-8",
+                errors="replace",
+                **hidden_console_process_kwargs(),
+            )
+            self.download_process = proc
+            assert proc.stdout is not None
+            for raw_line in proc.stdout:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                last_detail = line
+                progress_match = ARIA2_PROGRESS_RE.search(line)
+                if progress_match:
+                    percent = int(progress_match.group(1))
+                    self.app.call_ui(lambda p=percent, s=line: self._set_download_progress(p, s))
+                elif any(keyword in line.lower() for keyword in ("download complete", "complete:", "seeding")):
+                    self.app.call_ui(lambda s=line: self.status_var.set(s))
+                if any(keyword in line.lower() for keyword in ("error", "warn", "fail")):
+                    self.log(line)
+            code = proc.wait()
+            self.download_process = None
+            if self.download_cancel_requested.is_set():
+                raise OperationCanceledError("Torrent download canceled.")
+            if code != 0:
+                raise RuntimeError(last_detail or f"aria2 exited with code {code}")
+            self.app.call_ui(lambda: self.clear_sources())
+            self.app.call_ui(lambda: self._set_download_progress(100, f"Downloaded {len(sources)} torrent source(s)."))
+
+        self.worker = threading.Thread(target=lambda: self._run_download_worker(work), daemon=True)
+        self.worker.start()
+
+    def _run_download_worker(self, action) -> None:
+        try:
+            action()
+            self.app.info("Torrent download finished.")
+        except OperationCanceledError as exc:
+            self.log(str(exc))
+            self.app.call_ui(lambda: self.status_var.set(str(exc)))
+        except Exception as exc:
+            self.log(f"Error: {exc}")
+            self.app.error(f"{self.tab_name} failed:\n{exc}")
+
+    def cancel_download(self) -> None:
+        self.download_cancel_requested.set()
+        process = self.download_process
+        if process and process.poll() is None:
+            try:
+                process.terminate()
+            except Exception:
+                pass
+            self.status_var.set("Canceling torrent download...")
+        else:
+            self.status_var.set("No torrent download is currently running.")
+
+    def handle_external_drop(self, paths: list[Path]) -> bool:
+        handled = False
+        for path in paths:
+            if path.is_dir():
+                if not self.create_source.get().strip():
+                    self.create_source.set(str(path))
+                    self.torrent_output.set(str(path.parent / f"{path.name}.torrent"))
+                    handled = True
+                for child in path.rglob("*.torrent"):
+                    handled = self._add_download_source(str(child)) or handled
+                continue
+            if is_torrent_source_path(path):
+                handled = self._add_download_source(str(path)) or handled
+                continue
+            if not self.create_source.get().strip():
+                self.create_source.set(str(path))
+                self.torrent_output.set(str(path.with_suffix(".torrent")))
+                handled = True
+        return handled
 
 
 class PresetsBatchTab(ModuleTab):

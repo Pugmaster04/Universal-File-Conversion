@@ -19,6 +19,7 @@ This is a modular desktop suite for practical file workflows:
 - Storage Analyzer
 - Checksums / Integrity
 - Subtitles
+- Torrents
 - Presets / Batch Jobs
 
 Advanced media modules now include:
@@ -124,6 +125,12 @@ Base app functions work without all backends, but advanced workflows improve whe
 - LibreOffice
 - 7-Zip
 - ImageMagick
+- Aria2 (for torrent download / extraction)
+
+Torrent note:
+- Torrent file creation is built into the app through the bundled `torrentool` Python dependency.
+- Torrent download and extraction requires the optional `Aria2` backend.
+- The torrent workflow does not apply any download speed limit flags.
 
 Backends panel behavior:
 - Detected backend path: click to open file location
@@ -305,5 +312,4 @@ Updater download folder default:
 - Use lawful personal workflows.
 - Test on a small sample before large batch jobs.
 - Keep backups for destructive operations.
-
 
