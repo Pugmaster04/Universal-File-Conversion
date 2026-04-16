@@ -11,9 +11,11 @@ This changelog includes:
 
 ### Added
 - New `Torrents` workspace tab for creating `.torrent` files in-app and downloading/extracting torrent contents through the optional `Aria2` backend.
+- New dedicated `Aria2` workspace category with a `Downloads` tab for direct aria2-managed HTTP(S), FTP, SFTP, BitTorrent, magnet, and Metalink transfers.
 
 ### Changed
 - Backend detection/install guidance now also includes `Aria2` for torrent download workflows.
+- `Torrents` now lives under the dedicated `Aria2` workspace category instead of `Misc`.
 - The `Torrents` tab now shows a persistent safety disclaimer warning users to only download trusted content and clarifying that the app does not accept responsibility for damage caused by torrent sources or downloaded data.
 ## [0.7.3] - 2026-04-05
 

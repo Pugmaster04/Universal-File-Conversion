@@ -69,8 +69,13 @@ Workspace now has a second navigation layer:
 - Conversion
 - Advanced
 - Misc
+- Aria2
 
 Each of those category tabs contains the relevant module tabs for the current feature set.
+
+The dedicated `Aria2` workspace category currently contains:
+- `Downloads` for aria2-managed HTTP(S), FTP, SFTP, BitTorrent, magnet, and Metalink transfers
+- `Torrents` for `.torrent` creation plus torrent download/extraction through `aria2c`
 
 ## 3) First Run + Settings
 
@@ -285,4 +290,3 @@ Default output root:
 - Use lawful personal workflows.
 - Test on a small sample before large batch jobs.
 - Keep backups for destructive operations.
-

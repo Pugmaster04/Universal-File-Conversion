@@ -85,6 +85,8 @@ GUIDE_FILENAMES = (
 )
 
 TORRENT_SOURCE_EXTS = {".torrent"}
+METALINK_SOURCE_EXTS = {".meta4", ".metalink"}
+ARIA2_METADATA_SOURCE_EXTS = TORRENT_SOURCE_EXTS | METALINK_SOURCE_EXTS
 ARIA2_PROGRESS_RE = re.compile(r"\((\d+)%\)")
 
 
@@ -337,8 +339,27 @@ def is_torrent_source_path(path: Path) -> bool:
     return path.suffix.lower() in TORRENT_SOURCE_EXTS
 
 
+def is_metalink_source_path(path: Path) -> bool:
+    return path.suffix.lower() in METALINK_SOURCE_EXTS
+
+
+def is_aria2_metadata_source_path(path: Path) -> bool:
+    return path.suffix.lower() in ARIA2_METADATA_SOURCE_EXTS
+
+
 def is_magnet_uri(value: str) -> bool:
     return str(value).strip().lower().startswith("magnet:?")
+
+
+def is_aria2_download_uri(value: str) -> bool:
+    text = str(value).strip()
+    if is_magnet_uri(text):
+        return True
+    try:
+        parsed = urllib.parse.urlparse(text)
+    except Exception:
+        return False
+    return parsed.scheme.lower() in {"http", "https", "ftp", "sftp"}
 
 SINGLE_INSTANCE_MUTEX_NAMES = (
     "Local\\UniversalConversionHubUCH_SingleInstanceMutex",
@@ -2924,8 +2945,14 @@ class SuiteApp:
                     ("Storage Analyzer", StorageAnalyzerTab),
                     ("Checksums / Integrity", ChecksumsTab),
                     ("Subtitles", SubtitlesTab),
-                    ("Torrents", TorrentsTab),
                     ("Presets / Batch Jobs", PresetsBatchTab),
+                ],
+            ),
+            (
+                "Aria2",
+                [
+                    ("Downloads", Aria2DownloadsTab),
+                    ("Torrents", TorrentsTab),
                 ],
             ),
         ]
@@ -8234,6 +8261,293 @@ class SubtitlesTab(ModuleTab):
 
     def handle_external_drop(self, paths: list[Path]) -> bool:
         return self._add_dropped_file_paths(self.files, self.listbox, paths, expand_directories=True)
+
+
+class Aria2DownloadsTab(ModuleTab):
+    tab_name = "Downloads"
+
+    def __init__(self, master, app: SuiteApp):
+        super().__init__(master, app)
+        self.sources: list[str] = []
+        self.uri_var = StringVar(value="")
+        self.output_dir = StringVar(value=str(self.app.default_output_root / "aria2" / "downloads"))
+        self.status_var = StringVar(value="Ready.")
+        self.progress_var = IntVar(value=0)
+        self.progress_text_var = StringVar(value="0%")
+        self.download_process: subprocess.Popen[str] | None = None
+        self.download_cancel_requested = threading.Event()
+        self._build()
+
+    def _build(self) -> None:
+        outer = ttk.Frame(self, padding=10)
+        outer.pack(fill="both", expand=True)
+
+        ttk.Label(
+            outer,
+            text=(
+                "aria2 handles HTTP(S), FTP, SFTP, BitTorrent, magnet, and Metalink downloads. "
+                "This tab uses the detected aria2c backend directly and does not apply any download speed limit flags."
+            ),
+            wraplength=1200,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        warning_box = ttk.LabelFrame(outer, text="Warning / Disclaimer")
+        warning_box.pack(fill="x", pady=(0, 8))
+        ttk.Label(
+            warning_box,
+            text=(
+                "aria2 comes with no warranty. Use this workflow at your own risk. Universal Conversion Hub does not "
+                "accept responsibility for damage, data loss, malware, or other issues caused by downloaded content, "
+                "metadata files, trackers, or remote servers. Only download files, torrents, magnet links, or Metalink "
+                "sources when you trust the source and all related data."
+            ),
+            wraplength=1200,
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=8)
+
+        queue_box = ttk.LabelFrame(outer, text="aria2 Download Queue")
+        queue_box.pack(fill="both", expand=True, pady=(0, 8))
+
+        controls = ttk.Frame(queue_box)
+        controls.pack(fill="x", padx=10, pady=(10, 6))
+        ttk.Button(controls, text="Add URI", command=self.add_uri).pack(side="left")
+        ttk.Button(controls, text="Add Metadata Files", command=self.add_metadata_files).pack(side="left", padx=(6, 0))
+        ttk.Button(controls, text="Import URL List", command=self.import_url_list).pack(side="left", padx=(6, 0))
+        ttk.Button(controls, text="Remove Selected", command=self.remove_selected_sources).pack(side="left", padx=(6, 0))
+        ttk.Button(controls, text="Clear", command=self.clear_sources).pack(side="left", padx=(6, 0))
+
+        uri_row = ttk.Frame(queue_box)
+        uri_row.pack(fill="x", padx=10, pady=(0, 6))
+        ttk.Label(uri_row, text="URI / Magnet").pack(side="left")
+        ttk.Entry(uri_row, textvariable=self.uri_var).pack(side="left", fill="x", expand=True, padx=(8, 8))
+        ttk.Button(uri_row, text="Add", command=self.add_uri).pack(side="left")
+
+        queue = ttk.Frame(queue_box)
+        queue.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        self.listbox = tk.Listbox(queue, selectmode=SINGLE)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(queue, orient="vertical", command=self.listbox.yview)
+        scroll.pack(side="right", fill="y")
+        self.listbox.configure(yscrollcommand=scroll.set)
+
+        folder_row = ttk.Frame(queue_box)
+        folder_row.pack(fill="x", padx=10, pady=(0, 8))
+        ttk.Label(folder_row, text="Download folder").pack(side="left")
+        ttk.Entry(folder_row, textvariable=self.output_dir).pack(side="left", fill="x", expand=True, padx=(8, 8))
+        ttk.Button(folder_row, text="Browse", command=lambda: self.choose_output_dir(self.output_dir, "Choose aria2 download folder")).pack(side="left")
+        ttk.Button(folder_row, text="Open", command=lambda: self.app._open_path(Path(self.output_dir.get().strip() or str(self.app.default_output_root)))).pack(
+            side="left",
+            padx=(6, 0),
+        )
+        ttk.Button(folder_row, text="Start Download", command=self.start_download).pack(side="right")
+        ttk.Button(folder_row, text="Cancel", command=self.cancel_download).pack(side="right", padx=(0, 6))
+
+        info_box = ttk.LabelFrame(outer, text="Supported Inputs")
+        info_box.pack(fill="x", pady=(0, 8))
+        ttk.Label(
+            info_box,
+            text=(
+                "Use direct URIs for HTTP(S), FTP, and SFTP, or add .torrent / .meta4 / .metalink files. "
+                "Import URL List accepts a text file with one URI per line."
+            ),
+            wraplength=1200,
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=8)
+
+        progress_row = ttk.Frame(outer)
+        progress_row.pack(fill="x", pady=(0, 4))
+        ttk.Progressbar(progress_row, variable=self.progress_var, maximum=100).pack(side="left", fill="x", expand=True)
+        ttk.Label(progress_row, textvariable=self.progress_text_var).pack(side="left", padx=(8, 0))
+
+        ttk.Label(outer, textvariable=self.status_var).pack(anchor="w")
+
+    def _add_source(self, value: str) -> bool:
+        text = str(value).strip()
+        if not text or text in self.sources:
+            return False
+        self.sources.append(text)
+        self.listbox.insert(END, text)
+        return True
+
+    def add_uri(self) -> None:
+        value = self.uri_var.get().strip()
+        if not value:
+            messagebox.showwarning(APP_TITLE, "Enter a URI or magnet link first.")
+            return
+        if not is_aria2_download_uri(value):
+            messagebox.showwarning(APP_TITLE, "Only HTTP(S), FTP, SFTP, and magnet URIs are accepted here.")
+            return
+        if self._add_source(value):
+            self.uri_var.set("")
+
+    def add_metadata_files(self) -> None:
+        chosen = filedialog.askopenfilenames(
+            title="Select aria2 metadata files",
+            filetypes=[
+                ("aria2 metadata", "*.torrent *.meta4 *.metalink"),
+                ("Torrent files", "*.torrent"),
+                ("Metalink files", "*.meta4 *.metalink"),
+                ("All files", "*.*"),
+            ],
+        )
+        for raw in chosen:
+            path = Path(raw)
+            if path.exists() and is_aria2_metadata_source_path(path):
+                self._add_source(str(path))
+
+    def import_url_list(self) -> None:
+        chosen = filedialog.askopenfilename(
+            title="Import URL list",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+        )
+        if not chosen:
+            return
+        path = Path(chosen)
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except UnicodeDecodeError:
+            lines = path.read_text(encoding="utf-8-sig").splitlines()
+        except Exception as exc:
+            self.app.error(f"Could not read URL list:\n{exc}")
+            return
+        added = 0
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if is_aria2_download_uri(line):
+                added += int(self._add_source(line))
+        if added:
+            self.status_var.set(f"Imported {added} URI(s) from {path.name}.")
+        else:
+            self.status_var.set(f"No supported URIs were found in {path.name}.")
+
+    def remove_selected_sources(self) -> None:
+        selected = list(self.listbox.curselection())
+        selected.reverse()
+        for index in selected:
+            self.listbox.delete(index)
+            self.sources.pop(index)
+
+    def clear_sources(self) -> None:
+        self.sources.clear()
+        self.listbox.delete(0, END)
+
+    def _set_progress(self, percent: int, status: str) -> None:
+        bounded = max(0, min(100, percent))
+        self.progress_var.set(bounded)
+        self.progress_text_var.set(f"{bounded}%")
+        self.status_var.set(status)
+
+    def start_download(self) -> None:
+        if self.worker and self.worker.is_alive():
+            messagebox.showwarning(APP_TITLE, "An aria2 download is already running.")
+            return
+        if not self.sources:
+            messagebox.showwarning(APP_TITLE, "Add at least one URI, magnet link, torrent, or Metalink source first.")
+            return
+        aria2 = self.app.backends.aria2
+        if not aria2:
+            messagebox.showwarning(
+                APP_TITLE,
+                "Aria2 was not detected. Install or connect the Aria2 backend before using this tab.",
+            )
+            return
+        destination = Path(self.output_dir.get().strip() or str(self.app.default_output_root / "aria2" / "downloads"))
+        ensure_dir(destination)
+        sources = list(self.sources)
+        self.download_cancel_requested.clear()
+        self._set_progress(0, "Starting aria2 download...")
+
+        def work() -> None:
+            cmd = [
+                aria2,
+                "--dir",
+                str(destination),
+                "--summary-interval=1",
+                "--console-log-level=notice",
+                "--check-integrity=true",
+                "--continue=true",
+                "--auto-file-renaming=true",
+                "--follow-torrent=true",
+                "--follow-metalink=true",
+                "--bt-save-metadata=true",
+                "--seed-time=0",
+                *sources,
+            ]
+            self.log(f"Running aria2 command: {quote_cmd(cmd)}")
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                **hidden_console_process_kwargs(),
+            )
+            self.download_process = proc
+            last_detail = ""
+            try:
+                assert proc.stdout is not None
+                for raw_line in proc.stdout:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    last_detail = line
+                    self.log(line)
+                    match = ARIA2_PROGRESS_RE.search(line)
+                    if match:
+                        percent = int(match.group(1))
+                        self.app.call_ui(lambda p=percent, s=line: self._set_progress(p, s))
+                    elif any(keyword in line.lower() for keyword in ("download complete", "complete:", "seeding")):
+                        self.app.call_ui(lambda s=line: self.status_var.set(s))
+                code = proc.wait()
+            finally:
+                self.download_process = None
+            if self.download_cancel_requested.is_set():
+                raise OperationCanceledError("Aria2 download canceled.")
+            if code != 0:
+                raise RuntimeError(last_detail or f"aria2 exited with code {code}")
+            self.app.call_ui(lambda: self._set_progress(100, f"Downloaded {len(sources)} aria2 source(s)."))
+
+        self.worker = threading.Thread(target=lambda: self._run_download_worker(work), daemon=True)
+        self.worker.start()
+
+    def _run_download_worker(self, action) -> None:
+        try:
+            action()
+            self.app.info("Aria2 download finished.")
+        except OperationCanceledError as exc:
+            self.log(str(exc))
+            self.app.call_ui(lambda: self.status_var.set(str(exc)))
+        except Exception as exc:
+            self.log(f"Error: {exc}")
+            self.app.error(f"Aria2 download failed:\n{exc}")
+
+    def cancel_download(self) -> None:
+        self.download_cancel_requested.set()
+        process = self.download_process
+        if process and process.poll() is None:
+            try:
+                process.terminate()
+            except Exception:
+                pass
+            self.status_var.set("Canceling aria2 download...")
+        else:
+            self.status_var.set("No aria2 download is currently running.")
+
+    def handle_external_drop(self, paths: list[Path]) -> bool:
+        handled = False
+        for path in paths:
+            if path.is_dir():
+                for pattern in ("*.torrent", "*.meta4", "*.metalink"):
+                    for child in path.rglob(pattern):
+                        handled = self._add_source(str(child)) or handled
+                continue
+            if is_aria2_metadata_source_path(path):
+                handled = self._add_source(str(path)) or handled
+        return handled
 
 
 class TorrentsTab(ModuleTab):
