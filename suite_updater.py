@@ -141,6 +141,34 @@ def current_arch_markers() -> tuple[str, ...]:
     return mapping.get(machine, (machine,) if machine else tuple())
 
 
+@lru_cache(maxsize=1)
+def linux_os_release() -> dict[str, str]:
+    if current_platform_key() != "linux":
+        return {}
+    path = Path("/etc/os-release")
+    if not path.exists():
+        return {}
+    data: dict[str, str] = {}
+    try:
+        for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            data[key.strip().upper()] = value.strip().strip('"').strip("'")
+    except Exception:
+        return {}
+    return data
+
+
+def is_debian_like_linux() -> bool:
+    if current_platform_key() != "linux":
+        return False
+    release = linux_os_release()
+    identity = " ".join(filter(None, [release.get("ID", ""), release.get("ID_LIKE", "")])).lower()
+    return any(token in identity for token in ("debian", "ubuntu"))
+
+
 def looks_like_sha256(value: str) -> bool:
     candidate = value.strip().lower()
     return bool(re.fullmatch(r"[0-9a-f]{64}", candidate))
@@ -582,10 +610,12 @@ class UpdaterApp:
             return "", ""
 
         def is_primary_app_asset(lower: str) -> bool:
+            normalized_name = lower.replace("_", "-")
             return (
                 "updater" not in lower
                 and (
                     "universalconversionhub" in lower
+                    or "universal-conversion-hub" in normalized_name
                     or "hcb" in lower
                     or "universalfileutilitysuite" in lower
                 )
@@ -595,16 +625,27 @@ class UpdaterApp:
         arch_markers = current_arch_markers()
 
         if platform_key == "linux":
-            priority_checks = [
-                lambda lower: lower.endswith(".appimage") and "linux" in lower and is_primary_app_asset(lower) and any(marker in lower for marker in arch_markers),
-                lambda lower: lower.endswith(".tar.gz") and "linux" in lower and is_primary_app_asset(lower) and any(marker in lower for marker in arch_markers),
-                lambda lower: lower.endswith(".appimage") and "linux" in lower and is_primary_app_asset(lower),
-                lambda lower: lower.endswith(".tar.gz") and "linux" in lower and is_primary_app_asset(lower),
-                lambda lower: "linux" in lower and is_primary_app_asset(lower),
-                lambda lower: lower.endswith((".appimage", ".tar.gz")) and is_primary_app_asset(lower),
-                lambda lower: is_primary_app_asset(lower) and not lower.endswith(".exe"),
-                lambda _lower: True,
-            ]
+            priority_checks: list[Any] = []
+            if is_debian_like_linux():
+                priority_checks.extend(
+                    [
+                        lambda lower: lower.endswith(".deb") and is_primary_app_asset(lower) and any(marker in lower for marker in arch_markers),
+                        lambda lower: lower.endswith(".deb") and is_primary_app_asset(lower),
+                    ]
+                )
+            priority_checks.extend(
+                [
+                    lambda lower: lower.endswith(".appimage") and "linux" in lower and is_primary_app_asset(lower) and any(marker in lower for marker in arch_markers),
+                    lambda lower: lower.endswith(".tar.gz") and "linux" in lower and is_primary_app_asset(lower) and any(marker in lower for marker in arch_markers),
+                    lambda lower: lower.endswith(".appimage") and "linux" in lower and is_primary_app_asset(lower),
+                    lambda lower: lower.endswith(".tar.gz") and "linux" in lower and is_primary_app_asset(lower),
+                    lambda lower: "linux" in lower and is_primary_app_asset(lower),
+                    lambda lower: lower.endswith(".deb") and is_primary_app_asset(lower),
+                    lambda lower: lower.endswith((".appimage", ".tar.gz", ".deb")) and is_primary_app_asset(lower),
+                    lambda lower: is_primary_app_asset(lower) and not lower.endswith(".exe"),
+                    lambda _lower: True,
+                ]
+            )
         else:
             priority_checks = [
                 lambda lower: lower.endswith(".exe") and "setup" in lower,

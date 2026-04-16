@@ -22,8 +22,10 @@ This changelog includes:
 - Backend detection/install guidance now also includes `Aria2` for torrent download workflows.
 - `Torrents` now lives under the dedicated `Aria2` workspace category instead of `Misc`.
 - Linux build packaging now creates a release tarball named `UniversalConversionHub_UCH_linux_<arch>.tar.gz`.
-- Updater release-asset selection now prefers Linux `.AppImage` or `.tar.gz` assets on Linux instead of selecting Windows `.exe` downloads.
+- Linux build packaging now also creates a Debian package named `universal-conversion-hub-uch_<version>_<deb-arch>.deb` for lower-friction installs on Debian-family systems.
+- Updater release-asset selection now prefers Linux `.deb` assets on Debian-family systems, then `.AppImage` or `.tar.gz`, instead of selecting Windows `.exe` downloads.
 - GitHub Actions now includes a Linux build/release workflow that can upload Linux tarball assets to tagged releases.
+- GitHub Actions Linux builds now validate the generated Debian package layout and upload `.deb` assets alongside the tarball on tagged releases.
 - Linux builds now show an explicit in-app fallback message when drag-and-drop is unavailable, directing users to the existing Add Files / Add Folder controls.
 - App and updater entrypoints now expose `--version` and `--smoke-test` CLI modes so Linux CI can validate the frozen binaries headlessly after build.
 - The `Torrents` tab now shows a persistent safety disclaimer warning users to only download trusted content and clarifying that the app does not accept responsibility for damage caused by torrent sources or downloaded data.

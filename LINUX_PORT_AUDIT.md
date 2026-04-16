@@ -73,23 +73,24 @@ Linux work needed:
 - Keep parent-folder fallback as baseline.
 - Optionally add file-manager-specific reveal support later.
 
-### 5. Build and packaging are not Linux-release complete
+### 5. Build and packaging are still maturing
 
 Files:
 - `build_linux.sh`
 - `build_suite_release.bat`
 - `installer/UniversalConversionHub_UCH.iss`
 
-Issues:
-- Windows has a full release pipeline with installer and archive snapshots.
-- Linux currently only builds raw PyInstaller binaries.
-- There is no Linux packaging target such as AppImage, `.tar.gz`, `.deb`, or `.rpm`.
+Current state:
+- Linux now builds frozen PyInstaller binaries.
+- Linux now packages both:
+  - `.tar.gz`
+  - `.deb`
+- GitHub Actions validates and publishes those Linux artifacts.
 
 Linux work needed:
-- Decide on first Linux artifact:
-  - recommended first target: `.tar.gz` or AppImage
-- Add Linux artifact staging to match GitHub Releases.
-- Extend archive/snapshot tooling to include Linux outputs.
+- Add an AppImage target if portable single-file desktop distribution is still desired.
+- Decide whether `.rpm` is needed in addition to `.deb`.
+- Extend archive/snapshot tooling to include Linux outputs if Linux releases move into the same snapshot policy.
 
 ### 6. Updater asset selection is not platform-aware
 
@@ -131,7 +132,7 @@ Linux work needed:
 1. Backend detection and install metadata abstraction
 2. XDG config/state/output path support
 3. Updater platform-aware asset selection
-4. Linux release packaging target
+4. Linux release packaging polish
 5. Drag/drop on Linux
 6. Linux documentation and release process polish
 
@@ -145,4 +146,4 @@ The first Linux milestone should be:
 - settings are stored in XDG-compatible locations
 - GitHub Releases can publish and distinguish Linux artifacts
 
-That is the minimum useful Linux version. Drag/drop and native packaging can follow if they slow down the first stable port.
+That is the minimum useful Linux version. Drag/drop can still follow if it slows down the first stable port.

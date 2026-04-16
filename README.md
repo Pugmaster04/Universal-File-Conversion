@@ -217,16 +217,27 @@ Linux outputs:
 - `release_bins/UniversalConversionHub_UCH`
 - `release_bins/UniversalConversionHub_UCH_Updater`
 - `release_bins/UniversalConversionHub_UCH_linux_<arch>.tar.gz`
+- `release_bins/universal-conversion-hub-uch_<version>_<deb-arch>.deb`
 
 Linux release packaging:
-- `build_linux.sh` now stages raw Linux binaries and creates a release tarball named `UniversalConversionHub_UCH_linux_<arch>.tar.gz`
-- The updater branch logic prefers Linux `.AppImage` or `.tar.gz` assets on Linux instead of Windows `.exe` assets
+- `build_linux.sh` now stages raw Linux binaries, creates a release tarball named `UniversalConversionHub_UCH_linux_<arch>.tar.gz`, and builds a Debian package named `universal-conversion-hub-uch_<version>_<deb-arch>.deb`
+- Debian package installs to `/opt/universal-conversion-hub-uch` and exposes launchers:
+  - `universal-conversion-hub-uch`
+  - `universal-conversion-hub-uch-updater`
+- The updater branch logic now prefers Linux `.deb` assets on Debian-family systems, then falls back to `.AppImage` or `.tar.gz`
+
+Debian install:
+
+```bash
+sudo apt install ./universal-conversion-hub-uch_<version>_<deb-arch>.deb
+```
 
 GitHub Actions Linux workflow:
 - `.github/workflows/linux-build-release.yml`
 - Builds Linux artifacts on `ubuntu-latest`
 - Uploads workflow artifacts for branch builds
-- Uploads `UniversalConversionHub_UCH_linux_<arch>.tar.gz` to tagged GitHub Releases
+- Validates the generated `.deb` layout in CI
+- Uploads both `UniversalConversionHub_UCH_linux_<arch>.tar.gz` and `universal-conversion-hub-uch_<version>_<deb-arch>.deb` to tagged GitHub Releases
 
 ### Basic dependencies
 

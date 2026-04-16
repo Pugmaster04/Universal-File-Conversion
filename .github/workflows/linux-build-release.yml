@@ -44,6 +44,21 @@ jobs:
           ./release_bins/UniversalConversionHub_UCH_Updater --version
           ./release_bins/UniversalConversionHub_UCH_Updater --smoke-test
 
+      - name: Validate Debian package layout
+        shell: bash
+        run: |
+          DEB_PACKAGE="$(ls release_bins/*.deb)"
+          dpkg-deb --info "$DEB_PACKAGE"
+          rm -rf deb-smoke
+          mkdir -p deb-smoke
+          dpkg-deb -x "$DEB_PACKAGE" deb-smoke
+          test -x deb-smoke/usr/bin/universal-conversion-hub-uch
+          test -x deb-smoke/usr/bin/universal-conversion-hub-uch-updater
+          test -x deb-smoke/opt/universal-conversion-hub-uch/UniversalConversionHub_UCH
+          test -x deb-smoke/opt/universal-conversion-hub-uch/UniversalConversionHub_UCH_Updater
+          test -f deb-smoke/usr/share/applications/universal-conversion-hub-uch.desktop
+          test -f deb-smoke/usr/share/pixmaps/universal-conversion-hub-uch.png
+
       - name: Upload Linux build artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -53,6 +68,7 @@ jobs:
             release_bins/UniversalConversionHub_UCH
             release_bins/UniversalConversionHub_UCH_Updater
             release_bins/UniversalConversionHub_UCH_linux_*.tar.gz
+            release_bins/*.deb
 
       - name: Publish Linux release asset
         if: startsWith(github.ref, 'refs/tags/v')
@@ -62,4 +78,4 @@ jobs:
         run: |
           TAG_NAME="${GITHUB_REF_NAME}"
           gh release view "$TAG_NAME" >/dev/null 2>&1 || gh release create "$TAG_NAME" --title "$TAG_NAME" --notes "Linux build artifact added by GitHub Actions."
-          gh release upload "$TAG_NAME" release_bins/UniversalConversionHub_UCH_linux_*.tar.gz --clobber
+          gh release upload "$TAG_NAME" release_bins/UniversalConversionHub_UCH_linux_*.tar.gz release_bins/*.deb --clobber
