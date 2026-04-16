@@ -421,7 +421,6 @@ LINUX_PACKAGE_MANAGER_COMMANDS: dict[str, str] = {
     "pacman": "sudo pacman -S {packages}",
     "zypper": "sudo zypper install {packages}",
 }
-
 BACKEND_DESCRIPTIONS: dict[str, str] = {
     "FFmpeg": "Core media engine for video/audio convert, compress, and extract workflows.",
     "FFprobe": "Media inspection tool used for stream/format metadata readout.",

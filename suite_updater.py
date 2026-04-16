@@ -426,6 +426,33 @@ class UpdaterApp:
     def _end_window_drag(self, _event=None) -> None:
         self._window_drag_offset = None
 
+    def _bind_window_drag_widget(self, widget: tk.Misc) -> None:
+        try:
+            widget.configure(cursor="fleur")
+        except Exception:
+            pass
+
+        widget.bind("<ButtonPress-1>", self._begin_window_drag, add="+")
+        widget.bind("<B1-Motion>", self._perform_window_drag, add="+")
+        widget.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
+
+    def _begin_window_drag(self, event) -> str:
+        self._window_drag_offset = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
+        return "break"
+
+    def _perform_window_drag(self, event) -> str | None:
+        if not self._window_drag_offset:
+            return None
+        offset_x, offset_y = self._window_drag_offset
+        try:
+            self.root.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
+        except Exception:
+            return None
+        return "break"
+
+    def _end_window_drag(self, _event=None) -> None:
+        self._window_drag_offset = None
+
     def _default_settings(self) -> dict[str, Any]:
         return {
             "require_https_manifest": True,
