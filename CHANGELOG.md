@@ -12,6 +12,7 @@ This changelog includes:
 ### Added
 - New `Torrents` workspace tab for creating `.torrent` files in-app and downloading/extracting torrent contents through the optional `Aria2` backend.
 - New dedicated `Aria2` workspace category with a `Downloads` tab for direct aria2-managed HTTP(S), FTP, SFTP, BitTorrent, magnet, and Metalink transfers.
+- Torrent sources opened in `Torrents` now expose file-level selection with search, select-all/select-none, toggle controls, and a per-torrent progress view with individual file progress bars.
 
 ### Changed
 - Linux port groundwork now uses XDG-style config paths for app and updater settings instead of assuming `%LOCALAPPDATA%`.
