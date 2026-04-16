@@ -68,6 +68,10 @@ except Exception:
 APP_TITLE = "Universal Conversion Hub (UCH)"
 APP_SLUG = "UniversalConversionHubUCH"
 LEGACY_APP_SLUGS = ("UniversalConversionHubHCB", "UniversalFileUtilitySuite")
+# Versioning policy:
+# - Major releases use X.0
+# - Secondary feature releases use X.Y
+# - Patch releases use X.Y.Z
 APP_VERSION = "0.7.3"
 DEFAULT_UPDATE_MANIFEST_URL = ""
 APP_EXE_BASENAME = "UniversalConversionHub_UCH"

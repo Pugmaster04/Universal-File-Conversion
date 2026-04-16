@@ -17,6 +17,7 @@ This changelog includes:
 - Backend detection/install guidance now also includes `Aria2` for torrent download workflows.
 - `Torrents` now lives under the dedicated `Aria2` workspace category instead of `Misc`.
 - The `Torrents` tab now shows a persistent safety disclaimer warning users to only download trusted content and clarifying that the app does not accept responsibility for damage caused by torrent sources or downloaded data.
+- Release documentation and version constants now explicitly follow the `X.0` / `X.Y` / `X.Y.Z` versioning policy for major, secondary, and patch updates.
 ## [0.7.3] - 2026-04-05
 
 ### Fixed

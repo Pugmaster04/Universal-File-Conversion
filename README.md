@@ -6,6 +6,15 @@ Changelog:
 - `CHANGELOG.md` (full project history and release notes)
 - `archive/ARCHIVE_INDEX.md` (archive map and external archive-root policy)
 
+Versioning policy:
+- Major releases use `X.0`
+- Secondary feature releases use `X.Y`
+- Patch releases use `X.Y.Z`
+- Examples:
+  - major: `1.0`
+  - secondary: `1.1` through `1.9`
+  - patches: `1.1.1` through `1.9.99`
+
 This is a modular desktop suite for practical file workflows:
 - Convert
 - Compress

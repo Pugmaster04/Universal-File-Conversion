@@ -18,6 +18,10 @@ from tkinter import BooleanVar, StringVar, filedialog, messagebox, ttk
 
 
 APP_TITLE = "Universal Conversion Hub (UCH) Updater"
+# Versioning policy:
+# - Major releases use X.0
+# - Secondary feature releases use X.Y
+# - Patch releases use X.Y.Z
 CURRENT_VERSION = "0.7.3"
 APP_SLUG = "UniversalConversionHubUCH"
 LEGACY_APP_SLUGS = ("UniversalConversionHubHCB", "UniversalFileUtilitySuite")
