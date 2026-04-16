@@ -902,6 +902,19 @@ class BackendRegistry:
                 ]
             )
 
+        local_aria2_bases: list[Path] = [Path(__file__).resolve().parent, Path(__file__).resolve().parent.parent]
+        if getattr(sys, "frozen", False):
+            executable_dir = Path(sys.executable).resolve().parent
+            local_aria2_bases.extend([executable_dir, executable_dir.parent])
+        deduped_local_aria2_bases: list[Path] = []
+        seen_local_aria2_bases: set[str] = set()
+        for base in local_aria2_bases:
+            key = str(base)
+            if key in seen_local_aria2_bases:
+                continue
+            seen_local_aria2_bases.add(key)
+            deduped_local_aria2_bases.append(base)
+
         aria2 = existing(shutil.which("aria2c") or shutil.which("aria2c.exe"))
         if not aria2:
             aria2 = first_existing(
@@ -910,12 +923,15 @@ class BackendRegistry:
                     Path(os.environ.get("ProgramFiles(x86)", "")) / "aria2" / "aria2c.exe",
                     Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "aria2" / "aria2c.exe",
                     Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links" / "aria2c.exe",
+                    *[base / "aria2c.exe" for base in deduped_local_aria2_bases],
+                    *[base / "aria2" / "aria2c.exe" for base in deduped_local_aria2_bases],
                 ]
             )
         if not aria2:
             aria2 = first_glob(
                 [
                     str(Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages" / "aria2.aria2_Microsoft.Winget.Source_*" / "**" / "aria2c.exe"),
+                    *[str(base / "aria2*" / "aria2c.exe") for base in deduped_local_aria2_bases],
                 ]
             )
 
