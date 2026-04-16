@@ -10,6 +10,7 @@ import queue
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
@@ -21,7 +22,7 @@ import urllib.parse
 import urllib.request
 import webbrowser
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -365,6 +366,29 @@ def is_aria2_download_uri(value: str) -> bool:
         return False
     return parsed.scheme.lower() in {"http", "https", "ftp", "sftp"}
 
+
+def compress_index_ranges(indices: list[int]) -> str:
+    ordered = sorted({int(value) for value in indices if int(value) > 0})
+    if not ordered:
+        return ""
+    ranges: list[str] = []
+    start = ordered[0]
+    end = ordered[0]
+    for value in ordered[1:]:
+        if value == end + 1:
+            end = value
+            continue
+        ranges.append(f"{start}-{end}" if start != end else str(start))
+        start = end = value
+    ranges.append(f"{start}-{end}" if start != end else str(start))
+    return ",".join(ranges)
+
+
+def reserve_local_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
 SINGLE_INSTANCE_MUTEX_NAMES = (
     "Local\\UniversalConversionHubUCH_SingleInstanceMutex",
     "Local\\UniversalConversionHubHCB_SingleInstanceMutex",
@@ -463,6 +487,26 @@ class StorageViewEntry:
     path: Path | None
     size: int
     kind: str
+
+
+@dataclass
+class TorrentEntryFile:
+    index: int
+    path: str
+    length: int
+    selected: bool = True
+    progress: int = 0
+    status: str = "Queued"
+
+
+@dataclass
+class TorrentDownloadEntry:
+    source: str
+    label: str
+    entry_type: str
+    files: list[TorrentEntryFile] = field(default_factory=list)
+    progress: int = 0
+    status: str = "Queued"
 
 
 def _show_startup_warning(message: str) -> None:
@@ -8661,19 +8705,27 @@ class TorrentsTab(ModuleTab):
 
     def __init__(self, master, app: SuiteApp):
         super().__init__(master, app)
-        self.download_items: list[str] = []
+        self.download_entries: list[TorrentDownloadEntry] = []
+        self._entry_display_lookup: dict[str, int] = {}
         self.magnet_var = StringVar(value="")
         self.download_dir = StringVar(value=str(self.app.default_output_root / "torrents" / "downloads"))
         self.create_source = StringVar(value="")
         self.torrent_output = StringVar(value=str(self.app.default_output_root / "torrents" / "new_download.torrent"))
         self.comment_var = StringVar(value="")
         self.private_var = BooleanVar(value=False)
+        self.selected_entry_var = StringVar(value="")
+        self.progress_entry_var = StringVar(value="")
+        self.file_search_var = StringVar(value="")
         self.status_var = StringVar(value="Ready.")
         self.progress_var = IntVar(value=0)
         self.progress_text_var = StringVar(value="0%")
         self.download_process: subprocess.Popen[str] | None = None
         self.download_cancel_requested = threading.Event()
+        self._progress_rows_frame: ttk.Frame | None = None
+        self._progress_canvas: tk.Canvas | None = None
+        self._progress_canvas_window: int | None = None
         self._build()
+        self.file_search_var.trace_add("write", lambda *_: self._refresh_file_tree())
 
     def _build(self) -> None:
         outer = ttk.Frame(self, padding=10)
@@ -8707,20 +8759,99 @@ class TorrentsTab(ModuleTab):
 
         download_controls = ttk.Frame(download_box)
         download_controls.pack(fill="x", padx=10, pady=(10, 6))
-        ttk.Button(download_controls, text="Add Torrent Files", command=self.add_torrent_files).pack(side="left")
+        ttk.Button(download_controls, text="Open Torrent Files", command=self.add_torrent_files).pack(side="left")
         ttk.Button(download_controls, text="Remove Selected", command=self.remove_selected_sources).pack(side="left", padx=(6, 0))
         ttk.Button(download_controls, text="Clear", command=self.clear_sources).pack(side="left", padx=(6, 0))
         ttk.Label(download_controls, text="Magnet").pack(side="left", padx=(18, 6))
         ttk.Entry(download_controls, textvariable=self.magnet_var).pack(side="left", fill="x", expand=True)
         ttk.Button(download_controls, text="Add Magnet", command=self.add_magnet_link).pack(side="left", padx=(6, 0))
 
-        queue = ttk.Frame(download_box)
-        queue.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        split = ttk.Panedwindow(download_box, orient="horizontal")
+        split.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+
+        queue_panel = ttk.Frame(split)
+        detail_panel = ttk.Frame(split)
+        split.add(queue_panel, weight=1)
+        split.add(detail_panel, weight=2)
+
+        ttk.Label(queue_panel, text="Torrent Queue").pack(anchor="w", pady=(0, 4))
+        queue = ttk.Frame(queue_panel)
+        queue.pack(fill="both", expand=True)
         self.listbox = tk.Listbox(queue, selectmode=SINGLE)
         self.listbox.pack(side="left", fill="both", expand=True)
+        self.listbox.bind("<<ListboxSelect>>", self._on_queue_selection_changed)
         scroll = ttk.Scrollbar(queue, orient="vertical", command=self.listbox.yview)
         scroll.pack(side="right", fill="y")
         self.listbox.configure(yscrollcommand=scroll.set)
+
+        selection_box = ttk.LabelFrame(detail_panel, text="Torrent File Selection")
+        selection_box.pack(fill="both", expand=True)
+
+        selector_row = ttk.Frame(selection_box)
+        selector_row.pack(fill="x", padx=10, pady=(10, 6))
+        ttk.Label(selector_row, text="Opened torrent").pack(side="left")
+        self.entry_selector = ttk.Combobox(selector_row, textvariable=self.selected_entry_var, state="readonly")
+        self.entry_selector.pack(side="left", fill="x", expand=True, padx=(8, 0))
+        self.entry_selector.bind("<<ComboboxSelected>>", self._on_entry_selector_changed)
+
+        search_row = ttk.Frame(selection_box)
+        search_row.pack(fill="x", padx=10, pady=(0, 6))
+        ttk.Label(search_row, text="Search files").pack(side="left")
+        ttk.Entry(search_row, textvariable=self.file_search_var).pack(side="left", fill="x", expand=True, padx=(8, 8))
+        ttk.Button(search_row, text="Clear Search", command=lambda: self.file_search_var.set("")).pack(side="left")
+
+        selection_actions = ttk.Frame(selection_box)
+        selection_actions.pack(fill="x", padx=10, pady=(0, 6))
+        ttk.Button(selection_actions, text="Select All", command=self.select_all_files).pack(side="left")
+        ttk.Button(selection_actions, text="Select None", command=self.select_no_files).pack(side="left", padx=(6, 0))
+        ttk.Button(selection_actions, text="Toggle Selected", command=self.toggle_selected_files).pack(side="left", padx=(6, 0))
+
+        tree_wrap = ttk.Frame(selection_box)
+        tree_wrap.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.file_tree = ttk.Treeview(
+            tree_wrap,
+            columns=("selected", "size", "progress", "status", "path"),
+            show="headings",
+            selectmode="extended",
+        )
+        self.file_tree.heading("selected", text="On")
+        self.file_tree.heading("size", text="Size")
+        self.file_tree.heading("progress", text="Progress")
+        self.file_tree.heading("status", text="Status")
+        self.file_tree.heading("path", text="File")
+        self.file_tree.column("selected", width=60, anchor="center")
+        self.file_tree.column("size", width=110, anchor="e")
+        self.file_tree.column("progress", width=90, anchor="center")
+        self.file_tree.column("status", width=110, anchor="center")
+        self.file_tree.column("path", width=520, anchor="w")
+        self.file_tree.pack(side="left", fill="both", expand=True)
+        self.file_tree.bind("<Double-1>", self._toggle_tree_selection)
+        self.file_tree.bind("<Return>", self._toggle_tree_selection)
+        tree_scroll = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.file_tree.yview)
+        tree_scroll.pack(side="right", fill="y")
+        self.file_tree.configure(yscrollcommand=tree_scroll.set)
+
+        progress_box = ttk.LabelFrame(detail_panel, text="Files Being Downloaded")
+        progress_box.pack(fill="both", expand=True, pady=(8, 0))
+
+        progress_selector_row = ttk.Frame(progress_box)
+        progress_selector_row.pack(fill="x", padx=10, pady=(10, 6))
+        ttk.Label(progress_selector_row, text="Torrent view").pack(side="left")
+        self.progress_selector = ttk.Combobox(progress_selector_row, textvariable=self.progress_entry_var, state="readonly")
+        self.progress_selector.pack(side="left", fill="x", expand=True, padx=(8, 0))
+        self.progress_selector.bind("<<ComboboxSelected>>", self._on_progress_selector_changed)
+
+        progress_canvas_wrap = ttk.Frame(progress_box)
+        progress_canvas_wrap.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self._progress_canvas = tk.Canvas(progress_canvas_wrap, highlightthickness=0, bd=0, height=220)
+        self._progress_canvas.pack(side="left", fill="both", expand=True)
+        progress_scroll = ttk.Scrollbar(progress_canvas_wrap, orient="vertical", command=self._progress_canvas.yview)
+        progress_scroll.pack(side="right", fill="y")
+        self._progress_canvas.configure(yscrollcommand=progress_scroll.set)
+        self._progress_rows_frame = ttk.Frame(self._progress_canvas)
+        self._progress_canvas_window = self._progress_canvas.create_window((0, 0), window=self._progress_rows_frame, anchor="nw")
+        self._progress_rows_frame.bind("<Configure>", self._on_progress_rows_configured)
+        self._progress_canvas.bind("<Configure>", self._on_progress_canvas_configured)
 
         folder_row = ttk.Frame(download_box)
         folder_row.pack(fill="x", padx=10, pady=(0, 8))
@@ -8771,15 +8902,204 @@ class TorrentsTab(ModuleTab):
         ttk.Button(create_actions, text="Create Torrent", command=self.create_torrent).pack(side="right")
 
         ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(8, 0))
+        self._refresh_entry_views()
 
-    def _add_download_source(self, value: str) -> bool:
-        text = str(value).strip()
-        if not text:
+    def _on_progress_rows_configured(self, _event=None) -> None:
+        if self._progress_canvas is not None:
+            self._progress_canvas.configure(scrollregion=self._progress_canvas.bbox("all"))
+
+    def _on_progress_canvas_configured(self, event=None) -> None:
+        if self._progress_canvas is None or self._progress_canvas_window is None or event is None:
+            return
+        self._progress_canvas.itemconfigure(self._progress_canvas_window, width=max(1, int(event.width)))
+
+    def _torrent_display_name(self, entry: TorrentDownloadEntry, index: int) -> str:
+        return f"{index + 1}. {entry.label}"
+
+    def _refresh_entry_views(self) -> None:
+        selected_queue = self.listbox.curselection()
+        selected_index = int(selected_queue[0]) if selected_queue else 0
+        self.listbox.delete(0, END)
+        self._entry_display_lookup.clear()
+        combo_values: list[str] = []
+        for index, entry in enumerate(self.download_entries):
+            display_name = self._torrent_display_name(entry, index)
+            self._entry_display_lookup[display_name] = index
+            combo_values.append(display_name)
+            self.listbox.insert(END, f"{display_name}  [{entry.progress}%] {entry.status}")
+        if self.download_entries:
+            selected_index = max(0, min(selected_index, len(self.download_entries) - 1))
+            self.listbox.selection_clear(0, END)
+            self.listbox.selection_set(selected_index)
+            self.listbox.activate(selected_index)
+            display_value = combo_values[selected_index]
+            if self.selected_entry_var.get() not in self._entry_display_lookup:
+                self.selected_entry_var.set(display_value)
+            if self.progress_entry_var.get() not in self._entry_display_lookup:
+                self.progress_entry_var.set(display_value)
+        else:
+            self.selected_entry_var.set("")
+            self.progress_entry_var.set("")
+        self.entry_selector.configure(values=combo_values)
+        self.progress_selector.configure(values=combo_values)
+        self._refresh_file_tree()
+        self._refresh_progress_rows()
+
+    def _selected_entry(self) -> TorrentDownloadEntry | None:
+        index = self._entry_display_lookup.get(self.selected_entry_var.get())
+        if index is None or not (0 <= index < len(self.download_entries)):
+            return None
+        return self.download_entries[index]
+
+    def _progress_entry(self) -> TorrentDownloadEntry | None:
+        index = self._entry_display_lookup.get(self.progress_entry_var.get())
+        if index is None or not (0 <= index < len(self.download_entries)):
+            return None
+        return self.download_entries[index]
+
+    def _visible_files(self, entry: TorrentDownloadEntry) -> list[TorrentEntryFile]:
+        query = self.file_search_var.get().strip().lower()
+        if not query:
+            return list(entry.files)
+        return [item for item in entry.files if query in item.path.lower()]
+
+    def _refresh_file_tree(self) -> None:
+        for child in self.file_tree.get_children():
+            self.file_tree.delete(child)
+        entry = self._selected_entry()
+        if entry is None:
+            return
+        if not entry.files:
+            message = "Metadata is not available yet for this source." if entry.entry_type == "magnet" else "No torrent file metadata was loaded."
+            self.file_tree.insert("", "end", iid="__none__", values=("-", "-", "-", entry.status, message))
+            return
+        for item in self._visible_files(entry):
+            self.file_tree.insert(
+                "",
+                "end",
+                iid=str(item.index),
+                values=("On" if item.selected else "Off", human_size(item.length), f"{item.progress}%", item.status, item.path),
+            )
+
+    def _refresh_progress_rows(self) -> None:
+        if self._progress_rows_frame is None:
+            return
+        for child in self._progress_rows_frame.winfo_children():
+            child.destroy()
+        entry = self._progress_entry()
+        if entry is None:
+            ttk.Label(self._progress_rows_frame, text="No torrent selected.").pack(anchor="w", padx=6, pady=6)
+            return
+        files = [item for item in entry.files if item.selected or item.progress > 0 or item.status not in {"Queued", "Skipped"}]
+        if not files:
+            ttk.Label(self._progress_rows_frame, text="No selected files for this torrent.").pack(anchor="w", padx=6, pady=6)
+            return
+        for item in files:
+            row = ttk.Frame(self._progress_rows_frame)
+            row.pack(fill="x", expand=True, padx=4, pady=3)
+            ttk.Label(row, text=item.path, anchor="w").pack(fill="x", expand=True)
+            bar_row = ttk.Frame(row)
+            bar_row.pack(fill="x", expand=True, pady=(2, 0))
+            ttk.Progressbar(bar_row, maximum=100, value=item.progress).pack(side="left", fill="x", expand=True)
+            ttk.Label(bar_row, text=f"{item.progress}%  {item.status}").pack(side="left", padx=(8, 0))
+        self._on_progress_rows_configured()
+
+    def _on_queue_selection_changed(self, _event=None) -> None:
+        selection = self.listbox.curselection()
+        if not selection:
+            return
+        index = int(selection[0])
+        if not (0 <= index < len(self.download_entries)):
+            return
+        display_name = self._torrent_display_name(self.download_entries[index], index)
+        self.selected_entry_var.set(display_name)
+        self.progress_entry_var.set(display_name)
+        self._refresh_file_tree()
+        self._refresh_progress_rows()
+
+    def _on_entry_selector_changed(self, _event=None) -> None:
+        index = self._entry_display_lookup.get(self.selected_entry_var.get())
+        if index is None:
+            return
+        self.listbox.selection_clear(0, END)
+        self.listbox.selection_set(index)
+        self.listbox.activate(index)
+        self.progress_entry_var.set(self.selected_entry_var.get())
+        self._refresh_file_tree()
+        self._refresh_progress_rows()
+
+    def _on_progress_selector_changed(self, _event=None) -> None:
+        self._refresh_progress_rows()
+
+    def _toggle_tree_selection(self, _event=None) -> str | None:
+        self.toggle_selected_files()
+        return "break"
+
+    def _set_file_selection(self, selected: bool) -> None:
+        entry = self._selected_entry()
+        if entry is None or not entry.files:
+            return
+        for item in self._visible_files(entry):
+            item.selected = selected
+            if not item.selected and item.status == "Queued":
+                item.status = "Skipped"
+            elif item.selected and item.status == "Skipped":
+                item.status = "Queued"
+        self._refresh_file_tree()
+        self._refresh_progress_rows()
+
+    def select_all_files(self) -> None:
+        self._set_file_selection(True)
+
+    def select_no_files(self) -> None:
+        self._set_file_selection(False)
+
+    def toggle_selected_files(self) -> None:
+        entry = self._selected_entry()
+        if entry is None or not entry.files:
+            return
+        target_ids = {int(item) for item in self.file_tree.selection() if str(item).isdigit()}
+        if not target_ids:
+            return
+        for item in entry.files:
+            if item.index in target_ids:
+                item.selected = not item.selected
+                if not item.selected and item.status == "Queued":
+                    item.status = "Skipped"
+                elif item.selected and item.status == "Skipped":
+                    item.status = "Queued"
+        self._refresh_file_tree()
+        self._refresh_progress_rows()
+
+    def _parse_torrent_entry(self, source_path: Path) -> TorrentDownloadEntry:
+        label = source_path.name
+        try:
+            torrent = Torrent.from_file(str(source_path)) if Torrent is not None else None
+            if torrent is None:
+                return TorrentDownloadEntry(source=str(source_path), label=label, entry_type="torrent")
+            files = [
+                TorrentEntryFile(index=index, path=str(getattr(item, "name", f"File {index}")).replace("\\", "/"), length=int(getattr(item, "length", 0) or 0))
+                for index, item in enumerate(torrent.files or [], start=1)
+            ]
+            torrent_label = str(getattr(torrent, "name", "") or label)
+            status = "Ready for selection" if files else "No file list available"
+            return TorrentDownloadEntry(source=str(source_path), label=torrent_label, entry_type="torrent", files=files, status=status)
+        except Exception as exc:
+            return TorrentDownloadEntry(source=str(source_path), label=label, entry_type="torrent", status=f"Metadata unavailable: {exc}")
+
+    def _parse_magnet_entry(self, magnet: str) -> TorrentDownloadEntry:
+        parsed = urllib.parse.urlparse(magnet)
+        query = urllib.parse.parse_qs(parsed.query)
+        label = query.get("dn", [""])[0].strip()
+        if not label:
+            label = query.get("xt", [magnet[:72]])[0].strip() or magnet[:72]
+        return TorrentDownloadEntry(source=magnet, label=label, entry_type="magnet", status="Metadata will load during download")
+
+    def _add_download_entry(self, entry: TorrentDownloadEntry) -> bool:
+        if any(existing.source == entry.source for existing in self.download_entries):
             return False
-        if text in self.download_items:
-            return False
-        self.download_items.append(text)
-        self.listbox.insert(END, text)
+        self.download_entries.append(entry)
+        self._refresh_entry_views()
         return True
 
     def add_torrent_files(self) -> None:
@@ -8787,7 +9107,7 @@ class TorrentsTab(ModuleTab):
         for raw in chosen:
             path = Path(raw)
             if path.exists() and is_torrent_source_path(path):
-                self._add_download_source(str(path))
+                self._add_download_entry(self._parse_torrent_entry(path))
 
     def add_magnet_link(self) -> None:
         magnet = self.magnet_var.get().strip()
@@ -8797,19 +9117,20 @@ class TorrentsTab(ModuleTab):
         if not is_magnet_uri(magnet):
             messagebox.showwarning(APP_TITLE, "Magnet links must start with magnet:?.")
             return
-        if self._add_download_source(magnet):
+        if self._add_download_entry(self._parse_magnet_entry(magnet)):
             self.magnet_var.set("")
 
     def remove_selected_sources(self) -> None:
         selected = list(self.listbox.curselection())
         selected.reverse()
         for index in selected:
-            self.listbox.delete(index)
-            self.download_items.pop(index)
+            if 0 <= index < len(self.download_entries):
+                self.download_entries.pop(index)
+        self._refresh_entry_views()
 
     def clear_sources(self) -> None:
-        self.download_items.clear()
-        self.listbox.delete(0, END)
+        self.download_entries.clear()
+        self._refresh_entry_views()
 
     def pick_create_source_file(self) -> None:
         chosen = filedialog.askopenfilename(title="Select file to package into a torrent")
@@ -8877,15 +9198,137 @@ class TorrentsTab(ModuleTab):
         self.run_async(work, done_message=f"Torrent created: {output_path}")
 
     def _set_download_progress(self, percent: int, status: str) -> None:
-        self.progress_var.set(max(0, min(100, percent)))
-        self.progress_text_var.set(f"{max(0, min(100, percent))}%")
+        bounded = max(0, min(100, percent))
+        self.progress_var.set(bounded)
+        self.progress_text_var.set(f"{bounded}%")
         self.status_var.set(status)
+
+    def _aria2_rpc_call(self, port: int, method: str, params: list[Any] | None = None) -> Any:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": "uch",
+            "method": f"aria2.{method}",
+            "params": params or [],
+        }
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/jsonrpc",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=1.5) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        if isinstance(data, dict) and "result" in data:
+            return data["result"]
+        return None
+
+    def _choose_status_task(self, tasks: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if not tasks:
+            return None
+
+        def score(task: dict[str, Any]) -> tuple[int, int, int, int]:
+            files = task.get("files") or []
+            total_length = int(task.get("totalLength") or 0)
+            active = 1 if str(task.get("status") or "") in {"active", "waiting", "complete"} else 0
+            return (active, len(files), total_length, 1 if str(task.get("status") or "") == "complete" else 0)
+
+        return max(tasks, key=score)
+
+    def _derive_display_path(self, raw_path: str, download_root: Path) -> str:
+        try:
+            path = Path(raw_path)
+            resolved_root = download_root.resolve()
+            resolved_path = path.resolve()
+            if str(resolved_path).lower().startswith(str(resolved_root).lower()):
+                return str(resolved_path.relative_to(resolved_root)).replace("\\", "/")
+        except Exception:
+            pass
+        return str(raw_path).replace("\\", "/")
+
+    def _update_entry_from_rpc(self, entry: TorrentDownloadEntry, task: dict[str, Any], download_root: Path) -> None:
+        status = str(task.get("status") or "active").title()
+        total_length = int(task.get("totalLength") or 0)
+        completed_length = int(task.get("completedLength") or 0)
+        entry.progress = int((completed_length / total_length) * 100) if total_length > 0 else (100 if status == "Complete" else 0)
+        entry.status = status
+        rpc_files = task.get("files") or []
+        if not entry.files and rpc_files:
+            entry.files = []
+            for raw in rpc_files:
+                index = int(raw.get("index") or len(entry.files) + 1)
+                length = int(raw.get("length") or 0)
+                display_path = self._derive_display_path(str(raw.get("path") or f"File {index}"), download_root)
+                selected = str(raw.get("selected", "true")).lower() == "true"
+                completed = int(raw.get("completedLength") or 0)
+                progress = int((completed / length) * 100) if length > 0 else 0
+                entry.files.append(
+                    TorrentEntryFile(
+                        index=index,
+                        path=display_path,
+                        length=length,
+                        selected=selected,
+                        progress=progress,
+                        status=status,
+                    )
+                )
+        indexed_files = {item.index: item for item in entry.files}
+        for raw in rpc_files:
+            index = int(raw.get("index") or 0)
+            item = indexed_files.get(index)
+            if item is None:
+                continue
+            length = int(raw.get("length") or item.length or 0)
+            completed = int(raw.get("completedLength") or 0)
+            item.length = length
+            item.selected = str(raw.get("selected", "true")).lower() == "true"
+            item.progress = int((completed / length) * 100) if length > 0 else (100 if status == "Complete" else item.progress)
+            item.status = status if item.selected else "Skipped"
+            item.path = self._derive_display_path(str(raw.get("path") or item.path), download_root)
+
+    def _poll_entry_progress(self, rpc_port: int, entry: TorrentDownloadEntry, download_root: Path) -> None:
+        try:
+            tasks: list[dict[str, Any]] = []
+            active = self._aria2_rpc_call(rpc_port, "tellActive", [["gid", "status", "totalLength", "completedLength", "files"]]) or []
+            waiting = self._aria2_rpc_call(rpc_port, "tellWaiting", [0, 10, ["gid", "status", "totalLength", "completedLength", "files"]]) or []
+            stopped = self._aria2_rpc_call(rpc_port, "tellStopped", [0, 10, ["gid", "status", "totalLength", "completedLength", "files"]]) or []
+            if isinstance(active, list):
+                tasks.extend(active)
+            if isinstance(waiting, list):
+                tasks.extend(waiting)
+            if isinstance(stopped, list):
+                tasks.extend(stopped)
+            chosen = self._choose_status_task(tasks)
+            if chosen is not None:
+                self._update_entry_from_rpc(entry, chosen, download_root)
+                self.app.call_ui(self._refresh_entry_views)
+        except Exception:
+            return
+
+    def _selected_file_indices(self, entry: TorrentDownloadEntry) -> list[int]:
+        return [item.index for item in entry.files if item.selected]
+
+    def _read_process_output(self, proc: subprocess.Popen[str], entry: TorrentDownloadEntry, detail_holder: dict[str, str]) -> None:
+        try:
+            assert proc.stdout is not None
+            for raw_line in proc.stdout:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                detail_holder["last"] = line
+                self.log(line)
+                match = ARIA2_PROGRESS_RE.search(line)
+                if match:
+                    percent = int(match.group(1))
+                    entry.progress = percent
+                    self.app.call_ui(self._refresh_entry_views)
+                    self.app.call_ui(lambda p=percent, s=f"{entry.label}: {line}": self._set_download_progress(p, s))
+        except Exception as exc:
+            detail_holder["last"] = str(exc)
 
     def start_download(self) -> None:
         if self.worker and self.worker.is_alive():
             messagebox.showwarning(APP_TITLE, "Torrent download is already running.")
             return
-        if not self.download_items:
+        if not self.download_entries:
             messagebox.showwarning(APP_TITLE, "Add at least one torrent file or magnet link first.")
             return
         aria2 = self.app.backends.aria2
@@ -8895,62 +9338,98 @@ class TorrentsTab(ModuleTab):
                 "Aria2 was not detected. Install the Aria2 backend to download and extract torrent contents.",
             )
             return
+        for entry in self.download_entries:
+            if entry.entry_type == "torrent" and entry.files and not self._selected_file_indices(entry):
+                messagebox.showwarning(APP_TITLE, f"Select at least one file for {entry.label} before starting the download.")
+                return
         destination = Path(self.download_dir.get().strip())
         ensure_dir(destination)
-        sources = list(self.download_items)
+        entries = list(self.download_entries)
         self.download_cancel_requested.clear()
         self._set_download_progress(0, "Starting torrent download...")
 
         def work() -> None:
-            cmd = [
-                aria2,
-                "--dir",
-                str(destination),
-                "--summary-interval=1",
-                "--console-log-level=notice",
-                "--seed-time=0",
-                "--bt-save-metadata=true",
-                "--follow-torrent=true",
-                "--enable-dht=true",
-                "--enable-peer-exchange=true",
-                "--check-integrity=true",
-            ]
-            cmd.extend(sources)
-            self.log(f"$ {quote_cmd(cmd)}")
-            last_detail = "Starting torrent transfer..."
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                universal_newlines=True,
-                encoding="utf-8",
-                errors="replace",
-                **hidden_console_process_kwargs(),
-            )
-            self.download_process = proc
-            assert proc.stdout is not None
-            for raw_line in proc.stdout:
-                line = raw_line.strip()
-                if not line:
-                    continue
-                last_detail = line
-                progress_match = ARIA2_PROGRESS_RE.search(line)
-                if progress_match:
-                    percent = int(progress_match.group(1))
-                    self.app.call_ui(lambda p=percent, s=line: self._set_download_progress(p, s))
-                elif any(keyword in line.lower() for keyword in ("download complete", "complete:", "seeding")):
-                    self.app.call_ui(lambda s=line: self.status_var.set(s))
-                if any(keyword in line.lower() for keyword in ("error", "warn", "fail")):
-                    self.log(line)
-            code = proc.wait()
-            self.download_process = None
-            if self.download_cancel_requested.is_set():
-                raise OperationCanceledError("Torrent download canceled.")
-            if code != 0:
-                raise RuntimeError(last_detail or f"aria2 exited with code {code}")
-            self.app.call_ui(lambda: self.clear_sources())
-            self.app.call_ui(lambda: self._set_download_progress(100, f"Downloaded {len(sources)} torrent source(s)."))
+            completed = 0
+            total = max(1, len(entries))
+            for position, entry in enumerate(entries, start=1):
+                if self.download_cancel_requested.is_set():
+                    raise OperationCanceledError("Torrent download canceled.")
+                entry.status = "Starting"
+                entry.progress = 0
+                for item in entry.files:
+                    if item.selected:
+                        item.progress = 0
+                        item.status = "Queued"
+                    else:
+                        item.status = "Skipped"
+                self.app.call_ui(self._refresh_entry_views)
+                rpc_port = reserve_local_tcp_port()
+                cmd = [
+                    aria2,
+                    "--dir",
+                    str(destination),
+                    "--summary-interval=1",
+                    "--console-log-level=notice",
+                    "--seed-time=0",
+                    "--bt-save-metadata=true",
+                    "--follow-torrent=true",
+                    "--enable-dht=true",
+                    "--enable-peer-exchange=true",
+                    "--check-integrity=true",
+                    "--enable-rpc=true",
+                    "--rpc-listen-all=false",
+                    f"--rpc-listen-port={rpc_port}",
+                    entry.source,
+                ]
+                selected_indices = self._selected_file_indices(entry)
+                if entry.entry_type == "torrent" and entry.files and selected_indices and len(selected_indices) != len(entry.files):
+                    cmd.insert(-1, f"--select-file={compress_index_ranges(selected_indices)}")
+                self.log(f"$ {quote_cmd(cmd)}")
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    universal_newlines=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    **hidden_console_process_kwargs(),
+                )
+                self.download_process = proc
+                detail_holder = {"last": f"Starting torrent transfer for {entry.label}..."}
+                reader = threading.Thread(target=self._read_process_output, args=(proc, entry, detail_holder), daemon=True)
+                reader.start()
+                try:
+                    while proc.poll() is None:
+                        if self.download_cancel_requested.is_set():
+                            try:
+                                proc.terminate()
+                            except Exception:
+                                pass
+                            break
+                        self._poll_entry_progress(rpc_port, entry, destination)
+                        overall_progress = int(((position - 1) + (entry.progress / 100.0)) / total * 100)
+                        self.app.call_ui(lambda p=overall_progress, label=entry.label, s=entry.status: self._set_download_progress(p, f"{label}: {s}"))
+                        time.sleep(0.5)
+                finally:
+                    code = proc.wait()
+                    reader.join(timeout=2)
+                    self.download_process = None
+                self._poll_entry_progress(rpc_port, entry, destination)
+                if self.download_cancel_requested.is_set():
+                    raise OperationCanceledError("Torrent download canceled.")
+                if code != 0:
+                    raise RuntimeError(detail_holder.get("last") or f"aria2 exited with code {code}")
+                entry.progress = 100
+                entry.status = "Complete"
+                for item in entry.files:
+                    if item.selected:
+                        item.progress = 100
+                        item.status = "Complete"
+                completed += 1
+                self.app.call_ui(self._refresh_entry_views)
+                self.app.call_ui(lambda p=int(completed / total * 100), c=completed, t=total: self._set_download_progress(p, f"Completed {c} of {t} torrent source(s)."))
+            self.app.call_ui(lambda: self._set_download_progress(100, f"Downloaded {len(entries)} torrent source(s)."))
 
         self.worker = threading.Thread(target=lambda: self._run_download_worker(work), daemon=True)
         self.worker.start()
@@ -8987,10 +9466,10 @@ class TorrentsTab(ModuleTab):
                     self.torrent_output.set(str(path.parent / f"{path.name}.torrent"))
                     handled = True
                 for child in path.rglob("*.torrent"):
-                    handled = self._add_download_source(str(child)) or handled
+                    handled = self._add_download_entry(self._parse_torrent_entry(child)) or handled
                 continue
             if is_torrent_source_path(path):
-                handled = self._add_download_source(str(path)) or handled
+                handled = self._add_download_entry(self._parse_torrent_entry(path)) or handled
                 continue
             if not self.create_source.get().strip():
                 self.create_source.set(str(path))
