@@ -2,14 +2,14 @@
 
 This guide keeps the detailed install, build, workflow, backend, and archive notes that used to live in the repo front-page README.
 
-Version: `1.8.15`
+Version: `1.8.16`
 
 Changelog:
 - `CHANGELOG.md` (full project history and release notes)
 - `archive/ARCHIVE_INDEX.md` (archive map and external archive-root policy)
 
 Canonical release line:
-- `1.8.15` is the current Windows + Linux UX, packaging, and audit milestone.
+- `1.8.16` is the current Windows + Linux UX, packaging, and audit milestone.
 - Version numbers are now coordinated per release target instead of following the older staged-major/staged-minor note that used to live in this file.
 
 This is a modular desktop suite for practical file workflows:
@@ -183,8 +183,8 @@ Example:
 
 ```json
 {
-  "latest_version": "1.8.15",
-  "download_url": "https://github.com/Pugmaster04/Format-Foundry/releases/download/v1.8.15/FormatFoundry_Setup.exe",
+  "latest_version": "1.8.16",
+  "download_url": "https://github.com/Pugmaster04/Format-Foundry/releases/download/v1.8.16/FormatFoundry_Setup_1.8.16.exe",
   "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "notes": "Release notes here",
   "compatibility": {
@@ -222,11 +222,11 @@ Outputs:
 - `dist\FormatFoundry.exe`
 - `dist\FormatFoundry_Updater.exe`
 - `installer_output\FormatFoundry_Setup.exe`
-- `release_bins\FormatFoundry.exe`
-- `release_bins\FormatFoundry_Updater.exe`
-- `release_bins\FormatFoundry_Setup.exe`
+- `release_bins\FormatFoundry_<version>.exe`
+- `release_bins\FormatFoundry_Updater_<version>.exe`
+- `release_bins\FormatFoundry_Setup_<version>.exe`
 
-`release_bins` is the stable folder that always keeps the latest runnable app, updater, and installer binaries together.
+`release_bins` is the staging folder for the current release line. Public release assets are versioned so the downloaded filenames match the shipped release exactly.
 
 ### Linux build (preview)
 
@@ -240,12 +240,12 @@ Linux outputs:
 - `dist/FormatFoundry_Updater`
 - `release_bins/FormatFoundry`
 - `release_bins/FormatFoundry_Updater`
-- `release_bins/FormatFoundry_linux_<arch>.tar.gz`
+- `release_bins/FormatFoundry_linux_<version>_<arch>.tar.gz`
 - `release_bins/format-foundry_<version>_<deb-arch>.deb`
-- `release_bins/FormatFoundry_linux_<arch>.AppImage`
+- `release_bins/FormatFoundry_linux_<version>_<arch>.AppImage`
 
 Linux release packaging:
-- `build_linux.sh` now stages raw Linux binaries, creates a release tarball named `FormatFoundry_linux_<arch>.tar.gz`, builds a Debian package named `format-foundry_<version>_<deb-arch>.deb`, and builds an AppImage named `FormatFoundry_linux_<arch>.AppImage`
+- `build_linux.sh` now stages raw Linux binaries, creates a release tarball named `FormatFoundry_linux_<version>_<arch>.tar.gz`, builds a Debian package named `format-foundry_<version>_<deb-arch>.deb`, and builds an AppImage named `FormatFoundry_linux_<version>_<arch>.AppImage`
 - Debian package installs to `/opt/format-foundry` and exposes launchers:
   - `format-foundry`
   - `format-foundry-updater`
@@ -269,8 +269,8 @@ The Debian package installs a standalone app under `/opt/format-foundry`. It doe
 Ubuntu 24.04 install from AppImage:
 
 ```bash
-chmod +x FormatFoundry_linux_<arch>.AppImage
-./FormatFoundry_linux_<arch>.AppImage
+chmod +x FormatFoundry_linux_<version>_<arch>.AppImage
+./FormatFoundry_linux_<version>_<arch>.AppImage
 ```
 
 The AppImage is also self-contained. You can move it anywhere you want after download.
@@ -279,9 +279,9 @@ Optional AppImage launcher install:
 
 ```bash
 mkdir -p ~/Applications
-cp FormatFoundry_linux_<arch>.AppImage ~/Applications/
-chmod +x ~/Applications/FormatFoundry_linux_<arch>.AppImage
-~/Applications/FormatFoundry_linux_<arch>.AppImage
+cp FormatFoundry_linux_<version>_<arch>.AppImage ~/Applications/
+chmod +x ~/Applications/FormatFoundry_linux_<version>_<arch>.AppImage
+~/Applications/FormatFoundry_linux_<version>_<arch>.AppImage
 ```
 
 Ubuntu 24.04 build-from-source prerequisites:
@@ -308,7 +308,7 @@ GitHub Actions Linux workflow:
 - Uploads workflow artifacts for branch builds
 - Validates the generated `.deb` layout in CI
 - Smoke-tests the built AppImage in CI
-- Uploads `FormatFoundry_linux_<arch>.tar.gz`, `format-foundry_<version>_<deb-arch>.deb`, and `FormatFoundry_linux_<arch>.AppImage` to tagged GitHub Releases
+- Uploads `FormatFoundry_linux_<version>_<arch>.tar.gz`, `format-foundry_<version>_<deb-arch>.deb`, and `FormatFoundry_linux_<version>_<arch>.AppImage` to tagged GitHub Releases
 
 ### Basic dependencies
 
@@ -408,6 +408,23 @@ Updater download folder default:
 - Use lawful personal workflows.
 - Test on a small sample before large batch jobs.
 - Keep backups for destructive operations.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

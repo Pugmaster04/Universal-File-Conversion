@@ -1,5 +1,5 @@
 ﻿#define MyAppName "Format Foundry"
-#define MyAppVersion "1.8.15"
+#define MyAppVersion "1.8.16"
 #define MyAppPublisher "Format Foundry"
 #define MyAppExeName "FormatFoundry.exe"
 #define MyUpdaterExeName "FormatFoundry_Updater.exe"

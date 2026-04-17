@@ -6,6 +6,15 @@ set ROOT_CLEAN=%ROOT:~0,-1%
 cd /d "%ROOT%"
 set SNAPSHOT_SCRIPT=%ROOT%tools\create_historical_snapshot.ps1
 set STAGE_DIR=%ROOT%release_bins
+set PACKAGE_VERSION=
+for /f "usebackq delims=" %%i in (`python "%ROOT%tools\extract_app_version.py"`) do set PACKAGE_VERSION=%%i
+if "%PACKAGE_VERSION%"=="" (
+  echo Unable to determine APP_VERSION from modular_file_utility_suite.py
+  exit /b 6
+)
+set STAGED_APP=FormatFoundry_%PACKAGE_VERSION%.exe
+set STAGED_UPDATER=FormatFoundry_Updater_%PACKAGE_VERSION%.exe
+set STAGED_SETUP=FormatFoundry_Setup_%PACKAGE_VERSION%.exe
 
 if exist "%SNAPSHOT_SCRIPT%" (
   echo [0/7] Creating pre-build source snapshot...
@@ -64,12 +73,15 @@ if exist "%STAGE_DIR%\UniversalFileUtilitySuite_Setup.exe" del /f /q "%STAGE_DIR
 if exist "%STAGE_DIR%\FormatFoundry.exe" del /f /q "%STAGE_DIR%\FormatFoundry.exe" >nul 2>nul
 if exist "%STAGE_DIR%\FormatFoundry_Updater.exe" del /f /q "%STAGE_DIR%\FormatFoundry_Updater.exe" >nul 2>nul
 if exist "%STAGE_DIR%\FormatFoundry_Setup.exe" del /f /q "%STAGE_DIR%\FormatFoundry_Setup.exe" >nul 2>nul
-copy /y "%ROOT%dist\FormatFoundry.exe" "%STAGE_DIR%\FormatFoundry.exe" >nul
-copy /y "%ROOT%dist\FormatFoundry_Updater.exe" "%STAGE_DIR%\FormatFoundry_Updater.exe" >nul
-copy /y "%ROOT%installer_output\FormatFoundry_Setup.exe" "%STAGE_DIR%\FormatFoundry_Setup.exe" >nul
+if exist "%STAGE_DIR%\FormatFoundry_*.exe" del /f /q "%STAGE_DIR%\FormatFoundry_*.exe" >nul 2>nul
+if exist "%STAGE_DIR%\FormatFoundry_Updater_*.exe" del /f /q "%STAGE_DIR%\FormatFoundry_Updater_*.exe" >nul 2>nul
+if exist "%STAGE_DIR%\FormatFoundry_Setup_*.exe" del /f /q "%STAGE_DIR%\FormatFoundry_Setup_*.exe" >nul 2>nul
+copy /y "%ROOT%dist\FormatFoundry.exe" "%STAGE_DIR%\%STAGED_APP%" >nul
+copy /y "%ROOT%dist\FormatFoundry_Updater.exe" "%STAGE_DIR%\%STAGED_UPDATER%" >nul
+copy /y "%ROOT%installer_output\FormatFoundry_Setup.exe" "%STAGE_DIR%\%STAGED_SETUP%" >nul
 
 echo [5/7] Validating install surface...
-python "%ROOT%tools\validate_install_surface.py" --readme "%ROOT%README.md" --artifacts "%ROOT%release_bins" "%ROOT%installer_output" "%ROOT%dist" --required-asset "FormatFoundry_Setup.exe"
+python "%ROOT%tools\validate_install_surface.py" --readme "%ROOT%README.md" --artifacts "%ROOT%release_bins" "%ROOT%installer_output" "%ROOT%dist" --required-asset "%STAGED_SETUP%"
 if errorlevel 1 (
   echo Install surface validation failed.
   exit /b 5
@@ -84,6 +96,6 @@ echo [7/7] Done.
 echo App EXE:      "%ROOT%dist\FormatFoundry.exe"
 echo Updater EXE:  "%ROOT%dist\FormatFoundry_Updater.exe"
 echo Installer:    "%ROOT%installer_output\FormatFoundry_Setup.exe"
-echo Staged all in "%STAGE_DIR%"
+echo Versioned public assets: "%STAGE_DIR%\%STAGED_APP%", "%STAGE_DIR%\%STAGED_UPDATER%", "%STAGE_DIR%\%STAGED_SETUP%"
 endlocal
 

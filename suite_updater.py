@@ -32,7 +32,7 @@ from support_runtime import (
 
 
 APP_TITLE = "Format Foundry Updater"
-CURRENT_VERSION = "1.8.15"
+CURRENT_VERSION = "1.8.16"
 APP_SLUG = "FormatFoundry"
 LEGACY_APP_SLUGS = ("UniversalConversionHubUCH", "UniversalConversionHubHCB", "UniversalFileUtilitySuite")
 LEGACY_GITHUB_REPOS = ("Pugmaster04/Universal-File-Conversion",)
@@ -987,7 +987,10 @@ class UpdaterApp:
             return (
                 "updater" not in lower
                 and (
-                    "universalconversionhub" in lower
+                    "formatfoundry" in lower
+                    or "format-foundry" in normalized_name
+                    or "format-foundry" in lower
+                    or "universalconversionhub" in lower
                     or "universal-conversion-hub" in normalized_name
                     or "hcb" in lower
                     or "universalfileutilitysuite" in lower

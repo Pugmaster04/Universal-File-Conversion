@@ -40,7 +40,9 @@ jobs:
       - name: Validate install surface
         shell: powershell
         run: |
-          python tools/validate_install_surface.py --readme README.md --artifacts release_bins installer_output dist --required-asset FormatFoundry_Setup.exe
+          $version = python tools/extract_app_version.py
+          if (-not $version) { throw 'Unable to determine APP_VERSION' }
+          python tools/validate_install_surface.py --readme README.md --artifacts release_bins installer_output dist --required-asset "FormatFoundry_Setup_${version}.exe"
 
       - name: Upload Windows build artifacts
         uses: actions/upload-artifact@v6
@@ -51,9 +53,9 @@ jobs:
             dist/FormatFoundry.exe
             dist/FormatFoundry_Updater.exe
             installer_output/FormatFoundry_Setup.exe
-            release_bins/FormatFoundry.exe
-            release_bins/FormatFoundry_Updater.exe
-            release_bins/FormatFoundry_Setup.exe
+            release_bins/FormatFoundry_*.exe
+            release_bins/FormatFoundry_Updater_*.exe
+            release_bins/FormatFoundry_Setup_*.exe
 
   build-linux:
     runs-on: ubuntu-latest
@@ -81,7 +83,7 @@ jobs:
           ./release_bins/FormatFoundry --smoke-test
           ./release_bins/FormatFoundry_Updater --version
           ./release_bins/FormatFoundry_Updater --smoke-test
-          APPIMAGE_PACKAGE="$(find release_bins -maxdepth 1 -type f -name 'FormatFoundry_linux_*.AppImage' ! -name '*latest*' | head -n 1)"
+          APPIMAGE_PACKAGE="$(find release_bins -maxdepth 1 -type f -name 'FormatFoundry_linux_*.AppImage' | head -n 1)"
           chmod +x "$APPIMAGE_PACKAGE"
           APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE_PACKAGE" --version
           APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE_PACKAGE" --smoke-test
@@ -89,7 +91,7 @@ jobs:
       - name: Validate Debian package layout
         shell: bash
         run: |
-          DEB_PACKAGE="$(find release_bins -maxdepth 1 -type f -name 'format-foundry_*.deb' ! -name '*latest*' | head -n 1)"
+          DEB_PACKAGE="$(find release_bins -maxdepth 1 -type f -name 'format-foundry_*.deb' | head -n 1)"
           dpkg-deb --info "$DEB_PACKAGE"
           rm -rf deb-smoke
           mkdir -p deb-smoke
@@ -100,17 +102,20 @@ jobs:
           test -x deb-smoke/opt/format-foundry/FormatFoundry_Updater
           test -f deb-smoke/usr/share/applications/io.github.pugmaster04.formatfoundry.desktop
           test -f deb-smoke/usr/share/pixmaps/format-foundry.png
-          test -f release_bins/format-foundry_latest_amd64.deb || test -f release_bins/format-foundry_latest_arm64.deb
-          test -f release_bins/FormatFoundry_linux_latest_x86_64.AppImage || test -f release_bins/FormatFoundry_linux_latest_arm64.AppImage
+          test -f "$DEB_PACKAGE"
+          APPIMAGE_PACKAGE="$(find release_bins -maxdepth 1 -type f -name 'FormatFoundry_linux_*.AppImage' | head -n 1)"
+          test -f "$APPIMAGE_PACKAGE"
 
       - name: Validate install surface
         shell: bash
         run: |
+          VERSION="$(python3 tools/extract_app_version.py)"
+          test -n "$VERSION"
           python3 tools/validate_install_surface.py \
             --readme README.md \
             --artifacts release_bins \
-            --required-asset format-foundry_latest_amd64.deb \
-            --required-asset FormatFoundry_linux_latest_x86_64.AppImage
+            --required-asset "format-foundry_${VERSION}_amd64.deb" \
+            --required-asset "FormatFoundry_linux_${VERSION}_x86_64.AppImage"
 
       - name: Upload Linux build artifacts
         uses: actions/upload-artifact@v6
@@ -199,14 +204,15 @@ jobs:
           set -euo pipefail
           TAG_NAME="${{ steps.prep.outputs.tag }}"
           TITLE="${{ steps.prep.outputs.title }}"
+          VERSION="${{ steps.prep.outputs.version }}"
           declare -a ASSETS=(
-            "release-payload/windows/release_bins/FormatFoundry.exe"
-            "release-payload/windows/release_bins/FormatFoundry_Updater.exe"
-            "release-payload/windows/release_bins/FormatFoundry_Setup.exe"
+            "release-payload/windows/release_bins/FormatFoundry_${VERSION}.exe"
+            "release-payload/windows/release_bins/FormatFoundry_Updater_${VERSION}.exe"
+            "release-payload/windows/release_bins/FormatFoundry_Setup_${VERSION}.exe"
           )
           while IFS= read -r asset; do
             ASSETS+=("$asset")
-          done < <(find release-payload/linux -maxdepth 2 -type f \( -name '*.deb' -o -name '*.AppImage' -o -name 'FormatFoundry_linux_*.tar.gz' \) | sort)
+          done < <(find release-payload/linux -maxdepth 2 -type f \( -name "format-foundry_${VERSION}_*.deb" -o -name "FormatFoundry_linux_${VERSION}_*.AppImage" -o -name "FormatFoundry_linux_${VERSION}_*.tar.gz" \) | sort)
           test "${#ASSETS[@]}" -gt 0
           for asset in "${ASSETS[@]}"; do
             test -f "$asset"

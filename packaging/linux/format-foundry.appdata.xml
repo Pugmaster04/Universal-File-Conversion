@@ -37,6 +37,14 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.8.16" date="2026-04-17">
+      <description>
+        <ul>
+          <li>Release assets now ship with explicit versioned filenames instead of generic latest-style download aliases.</li>
+          <li>The website, README, and release validation now point to the exact tagged asset names for the current release.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.8.15" date="2026-04-17">
       <description>
         <ul>

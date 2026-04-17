@@ -133,13 +133,11 @@ print(match.group(1))
 PY
 )"
 
-TAR_BASENAME="${APP_BINARY_NAME}_linux_${ARCH}"
+TAR_BASENAME="${APP_BINARY_NAME}_linux_${PACKAGE_VERSION}_${ARCH}"
 TAR_DIR="release_bins/${TAR_BASENAME}"
 TAR_PACKAGE="release_bins/${TAR_BASENAME}.tar.gz"
 DEB_PACKAGE="release_bins/${PACKAGE_NAME}_${PACKAGE_VERSION}_${DEB_ARCH}.deb"
-DEB_LATEST_PACKAGE="release_bins/${PACKAGE_NAME}_latest_${DEB_ARCH}.deb"
-APPIMAGE_PACKAGE="release_bins/${APP_BINARY_NAME}_linux_${ARCH}.AppImage"
-APPIMAGE_LATEST_PACKAGE="release_bins/${APP_BINARY_NAME}_linux_latest_${ARCH}.AppImage"
+APPIMAGE_PACKAGE="release_bins/${APP_BINARY_NAME}_linux_${PACKAGE_VERSION}_${ARCH}.AppImage"
 APPIMAGE_TOOL="${APPIMAGE_TOOL_DIR}/appimagetool-${APPIMAGE_ARCH}.AppImage"
 APPIMAGE_TOOL_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${APPIMAGE_ARCH}.AppImage"
 
@@ -201,9 +199,7 @@ rm -f \
   "release_bins/UniversalFileUtilitySuite_Updater" \
   "$TAR_PACKAGE" \
   "$DEB_PACKAGE" \
-  "$DEB_LATEST_PACKAGE" \
   "$APPIMAGE_PACKAGE" \
-  "$APPIMAGE_LATEST_PACKAGE" \
   release_bins/UniversalConversionHub_UCH_linux_*.tar.gz \
   release_bins/FormatFoundry_linux_*.tar.gz \
   release_bins/*.deb \
@@ -270,7 +266,6 @@ Description: ${APP_NAME}
  storage analysis, and aria2-based downloads.
 EOF
 dpkg-deb --build --root-owner-group "$DEB_ROOT" "$DEB_PACKAGE"
-cp -f "$DEB_PACKAGE" "$DEB_LATEST_PACKAGE"
 appstreamcli validate --pedantic --no-net "${DEB_ROOT}/usr/share/metainfo/${PACKAGE_NAME}.appdata.xml"
 
 echo "[7/8] Creating AppImage..."
@@ -296,15 +291,13 @@ chmod 755 "${APPDIR_ROOT}/AppRun" "${APPDIR_ROOT}/usr/bin/${APP_BINARY_NAME}" "$
 appstreamcli validate --pedantic --no-net "${APPDIR_ROOT}/usr/share/metainfo/${PACKAGE_NAME}.appdata.xml"
 APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE_TOOL" "$APPDIR_ROOT" "$APPIMAGE_PACKAGE"
 chmod +x "$APPIMAGE_PACKAGE"
-cp -f "$APPIMAGE_PACKAGE" "$APPIMAGE_LATEST_PACKAGE"
-chmod +x "$APPIMAGE_LATEST_PACKAGE"
 
 echo "[8/8] Validating install surface..."
 "${PYTHON_BIN}" tools/validate_install_surface.py \
   --readme README.md \
   --artifacts release_bins \
-  --required-asset "format-foundry_latest_${DEB_ARCH}.deb" \
-  --required-asset "FormatFoundry_linux_latest_${ARCH}.AppImage"
+  --required-asset "format-foundry_${PACKAGE_VERSION}_${DEB_ARCH}.deb" \
+  --required-asset "FormatFoundry_linux_${PACKAGE_VERSION}_${ARCH}.AppImage"
 
 echo "Done."
 echo "App binary:      $ROOT/dist/${APP_BINARY_NAME}"
@@ -312,6 +305,4 @@ echo "Updater binary:  $ROOT/dist/${UPDATER_BINARY_NAME}"
 echo "Staged output:   $ROOT/release_bins"
 echo "Linux package:   $ROOT/$TAR_PACKAGE"
 echo "Debian package:  $ROOT/$DEB_PACKAGE"
-echo "Debian latest:   $ROOT/$DEB_LATEST_PACKAGE"
 echo "AppImage:        $ROOT/$APPIMAGE_PACKAGE"
-echo "AppImage latest: $ROOT/$APPIMAGE_LATEST_PACKAGE"

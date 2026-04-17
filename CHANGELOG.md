@@ -9,6 +9,15 @@ This changelog includes:
 
 ## [Unreleased]
 
+## [1.8.16] - 2026-04-17
+
+### Changed
+- Public Windows and Linux download assets now use explicit versioned filenames instead of `latest` aliases, so downloaded files match the actual release version.
+- The website, README, release metadata examples, and install instructions now point at the exact current release asset names instead of `releases/latest/download/...` shortcuts.
+- Windows release staging now produces `FormatFoundry_<version>.exe`, `FormatFoundry_Updater_<version>.exe`, and `FormatFoundry_Setup_<version>.exe` for GitHub releases.
+- Linux release staging now produces `FormatFoundry_linux_<version>_<arch>.tar.gz` and `FormatFoundry_linux_<version>_<arch>.AppImage` without publishing `latest` alias duplicates.
+- Coordinated release CI now validates and publishes only versioned public artifacts, and the updater now explicitly recognizes `Format Foundry`-named release assets during GitHub release checks.
+
 ## [1.8.15] - 2026-04-17
 
 ### Fixed
