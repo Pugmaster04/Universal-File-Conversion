@@ -1,4 +1,4 @@
-# Format Foundry - Project Plan
+﻿# Format Foundry - Project Plan
 
 ## Vision
 Build one desktop app with modular tools instead of a single tangled interface.  
@@ -60,7 +60,7 @@ Each module should be independently testable, replaceable, and extensible.
   - Presets / Batch Jobs
 
 ## Current Release Target
-- Canonical coordinated release: `1.8.13`
+- Canonical coordinated release: `1.8.14`
 - This milestone combines the Windows installer path, Linux packaging path, shared UX redesign work, and the cross-platform audit pass in one release line.
 - App version, updater version, installer metadata, manifest version, and public install docs should stay aligned to the same release target.
 
@@ -75,6 +75,7 @@ Each module should be independently testable, replaceable, and extensible.
    - Linux release packaging
    - code signing
    - automated release publishing
+
 
 
 

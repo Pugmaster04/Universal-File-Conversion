@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project are documented in this file.
 
@@ -9,10 +9,18 @@ This changelog includes:
 
 ## [Unreleased]
 
+## [1.8.14] - 2026-04-17
+
+### Fixed
+- The updater now uses Linux-friendly fonts, display-aware scaling, and responsive window sizing instead of a fixed Windows-first dialog layout.
+- The updater body is now scrollable with mouse-wheel support on both Windows and Linux, so smaller screens can reach every control without awkward clipping.
+- The redundant internal drag strip was removed from the updater, which makes the packaged Linux window behave more like a native desktop utility.
+- Release notes now have a proper scrollable pane, and the updater hero/source/release sections adapt more cleanly as the window narrows.
+
 ## [1.8.13] - 2026-04-17
 
 ### Fixed
-- Mouse-wheel scrolling now works through the app’s shared viewport canvases on both Windows and Linux, including the main module shell and torrent per-file progress panel.
+- Mouse-wheel scrolling now works through the app's shared viewport canvases on both Windows and Linux, including the main module shell and torrent per-file progress panel.
 - The wheel dispatcher now also handles native `Text`, `Listbox`, and `Treeview` widgets consistently across Windows and Linux instead of relying on platform-default behavior.
 - The app-level `Check Updates` actions now launch the same updater flow used by `FormatFoundry_Updater`, instead of using a separate in-app manifest check path with different behavior.
 - The app now syncs shared update security settings into `updater_settings.json` before launching the updater, so the in-app button and standalone updater use the same source and host policy.
@@ -61,7 +69,7 @@ This changelog includes:
 - New dedicated `Aria2` workspace category with a `Downloads` tab for direct aria2-managed HTTP(S), FTP, SFTP, BitTorrent, magnet, and Metalink transfers.
 - Torrent sources opened in `Torrents` now expose file-level selection with search, select-all/select-none, toggle controls, and a per-torrent progress view with individual file progress bars.
 - `Aria2 -> Downloads` and `Aria2 -> Torrents` now include inline pause/resume/stop controls plus state badges so active transfer state is visible without adding more modal workflow interruptions.
-- Linux packaging now emits stable “latest” aliases for the Debian package and AppImage so the repo front page can link directly to the current installer assets.
+- Linux packaging now emits stable â€œlatestâ€ aliases for the Debian package and AppImage so the repo front page can link directly to the current installer assets.
 - The app now exposes a clear uninstall flow through `File -> Uninstall...` and `Settings -> Uninstall App`, with platform-specific actions for Windows uninstallers, Debian package removal, AppImage cleanup guidance, and portable/source copies.
 - Windows GitHub Actions now build the app, updater, and installer on tagged releases so the Windows installer link on the repo front page is tied to an automated release path instead of manual drift.
 - Install-surface validation now checks that documented public installer filenames are present in the build outputs before release staging completes.
@@ -84,7 +92,7 @@ This changelog includes:
 - Updater release-asset selection now prefers Linux `.deb` assets on Debian-family systems, then `.AppImage` or `.tar.gz`, instead of selecting Windows `.exe` downloads.
 - GitHub Actions now includes a Linux build/release workflow that can upload Linux tarball assets to tagged releases.
 - GitHub Actions Linux builds now validate the generated Debian package layout, smoke-test the AppImage, and upload `.deb` and `.AppImage` assets alongside the tarball on tagged releases.
-- Linux singleton lock files now use user-scoped XDG runtime/cache paths instead of a shared `/tmp` fallback path, reducing false “already running” conflicts and silent startup failures.
+- Linux singleton lock files now use user-scoped XDG runtime/cache paths instead of a shared `/tmp` fallback path, reducing false â€œalready runningâ€ conflicts and silent startup failures.
 - Linux packaged windows now have PNG icon fallback wiring, and packaged update-manifest discovery now also checks bundled resources so self-contained Linux builds do not depend on the source tree.
 - Linux builds now show an explicit in-app fallback message when drag-and-drop is unavailable, directing users to the existing Add Files / Add Folder controls.
 - App and updater entrypoints now expose `--version` and `--smoke-test` CLI modes so Linux CI can validate the frozen binaries headlessly after build.
@@ -330,6 +338,7 @@ This changelog includes:
 - Rapid binary iteration cycle in Downloads workspace while core UI/packaging foundations were being established.
 - Artifacts from this stage were later archived and superseded by the canonical `v0.5` source/build process in:
   - `C:\Users\Pugma\Documents\Universal File Utility Suite Output\Universal-File-Conversion`
+
 
 
 

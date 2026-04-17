@@ -1,4 +1,4 @@
-import argparse
+﻿import argparse
 import hashlib
 import json
 import os
@@ -14,9 +14,10 @@ import urllib.request
 import webbrowser
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import BooleanVar, StringVar, filedialog, messagebox, ttk
 
 from support_runtime import (
@@ -31,7 +32,7 @@ from support_runtime import (
 
 
 APP_TITLE = "Format Foundry Updater"
-CURRENT_VERSION = "1.8.13"
+CURRENT_VERSION = "1.8.14"
 APP_SLUG = "FormatFoundry"
 LEGACY_APP_SLUGS = ("UniversalConversionHubUCH", "UniversalConversionHubHCB", "UniversalFileUtilitySuite")
 LEGACY_GITHUB_REPOS = ("Pugmaster04/Universal-File-Conversion",)
@@ -323,8 +324,6 @@ class UpdaterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title(APP_TITLE)
-        self.root.geometry("800x560")
-        self.root.minsize(720, 500)
 
         self.script_dir = Path(__file__).resolve().parent
         self.resource_dir = Path(getattr(sys, "_MEIPASS", self.script_dir))
@@ -334,7 +333,12 @@ class UpdaterApp:
         self.appdata_dir = self._resolve_appdata_dir()
         self.settings_path = self.appdata_dir / "updater_settings.json"
         self.settings = self._load_settings()
+        self._mousewheel_targets: dict[str, Callable[[int], None]] = {}
+        self._body_canvas: tk.Canvas | None = None
+        self._body_frame: ttk.Frame | None = None
+        self._body_window_id: int | None = None
 
+        self._apply_initial_geometry()
         self._apply_icon()
 
         saved_source = self._normalize_update_source(str(self.settings.get("source", "")).strip())
@@ -375,11 +379,13 @@ class UpdaterApp:
         self.last_compatibility: dict[str, Any] | None = None
         self.checking = False
         self.downloading = False
-        self._window_drag_offset: tuple[int, int] | None = None
         self.style: ttk.Style | None = None
 
         self._configure_styles()
         self._build_ui()
+        self.root.bind_all("<MouseWheel>", self._dispatch_mousewheel_scroll, add="+")
+        self.root.bind_all("<Button-4>", self._dispatch_mousewheel_scroll, add="+")
+        self.root.bind_all("<Button-5>", self._dispatch_mousewheel_scroll, add="+")
         self._bind_setting_traces()
         self._save_settings()
         self._refresh_environment_status()
@@ -415,6 +421,162 @@ class UpdaterApp:
                 except Exception:
                     continue
 
+    def _auto_ui_scale_factor(self) -> float:
+        try:
+            screen_width = max(1, int(self.root.winfo_screenwidth()))
+            screen_height = max(1, int(self.root.winfo_screenheight()))
+        except Exception:
+            screen_width, screen_height = (1920, 1080)
+        try:
+            dpi = float(self.root.winfo_fpixels("1i"))
+        except Exception:
+            dpi = 96.0
+
+        scale = 1.0
+        if dpi >= 168:
+            scale = max(scale, 1.34)
+        elif dpi >= 144:
+            scale = max(scale, 1.22)
+        elif dpi >= 120:
+            scale = max(scale, 1.10)
+
+        if current_platform_key() == "linux":
+            scale = max(scale, 1.08)
+            if screen_width >= 3200 or screen_height >= 1800:
+                scale = max(scale, 1.28)
+            elif screen_width >= 2560 or screen_height >= 1440:
+                scale = max(scale, 1.16)
+        elif screen_width >= 2560 or screen_height >= 1440:
+            scale = max(scale, 1.06)
+
+        return min(1.4, scale)
+
+    def _ui_scale_factor(self) -> float:
+        return self._auto_ui_scale_factor()
+
+    def _scaled(self, value: int, minimum: int = 1) -> int:
+        return max(minimum, int(round(float(value) * self._ui_scale_factor())))
+
+    def _preferred_font_family(self) -> str:
+        cached = getattr(self, "_cached_font_family", "")
+        if cached:
+            return cached
+        candidates_by_platform = {
+            "windows": ["Segoe UI", "Arial", "Tahoma"],
+            "linux": ["Ubuntu", "Noto Sans", "DejaVu Sans", "Liberation Sans", "Arial"],
+            "other": ["Arial", "Helvetica", "DejaVu Sans"],
+        }
+        candidates = candidates_by_platform.get(current_platform_key(), candidates_by_platform["other"])
+        try:
+            available = {str(name) for name in tkfont.families(self.root)}
+        except Exception:
+            available = set()
+        family = next((name for name in candidates if not available or name in available), candidates[-1])
+        self._cached_font_family = family
+        return family
+
+    def _font(self, size: int, semibold: bool = False, bold: bool = False):
+        parts: list[Any] = [self._preferred_font_family(), self._scaled(size)]
+        if semibold or bold:
+            parts.append("bold")
+        return tuple(parts)
+
+    def _apply_initial_geometry(self) -> None:
+        try:
+            screen_width = max(1, int(self.root.winfo_screenwidth()))
+            screen_height = max(1, int(self.root.winfo_screenheight()))
+        except Exception:
+            screen_width, screen_height = (1920, 1080)
+
+        width = max(self._scaled(760), min(self._scaled(1040), int(screen_width * 0.92)))
+        height = max(self._scaled(540), min(self._scaled(820), int(screen_height * 0.90)))
+        min_width = max(self._scaled(680), min(width, self._scaled(840)))
+        min_height = max(self._scaled(500), min(height, self._scaled(600)))
+        x = max(0, (screen_width - width) // 2)
+        y = max(0, (screen_height - height) // 4)
+
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        self.root.minsize(min_width, min_height)
+
+    def _mousewheel_units_from_event(self, event: Any) -> int:
+        if hasattr(event, "delta") and getattr(event, "delta", 0):
+            delta = int(event.delta)
+            if delta == 0:
+                return 0
+            if os.name == "nt":
+                steps = max(1, abs(delta) // 120)
+                return -steps if delta > 0 else steps
+            return -1 if delta > 0 else 1
+        button_num = getattr(event, "num", None)
+        if button_num == 4:
+            return -1
+        if button_num == 5:
+            return 1
+        return 0
+
+    def _register_mousewheel_target(self, widget: tk.Misc, callback: Callable[[int], None]) -> None:
+        self._mousewheel_targets[str(widget)] = callback
+
+    def _dispatch_mousewheel_scroll(self, event: Any) -> str | None:
+        delta_units = self._mousewheel_units_from_event(event)
+        if not delta_units:
+            return None
+
+        widget = getattr(event, "widget", None)
+        if widget is None:
+            return None
+
+        try:
+            if isinstance(widget, tk.Text):
+                widget.yview_scroll(delta_units, "units")
+                return "break"
+            if isinstance(widget, tk.Listbox):
+                widget.yview_scroll(delta_units, "units")
+                return "break"
+            if isinstance(widget, ttk.Treeview):
+                widget.yview_scroll(delta_units, "units")
+                return "break"
+        except Exception:
+            return None
+
+        current = widget
+        while current is not None:
+            callback = self._mousewheel_targets.get(str(current))
+            if callback is not None:
+                try:
+                    callback(delta_units)
+                    return "break"
+                except Exception:
+                    return None
+            try:
+                parent_name = current.winfo_parent()
+            except Exception:
+                break
+            if not parent_name:
+                break
+            try:
+                current = current.nametowidget(parent_name)
+            except Exception:
+                break
+        return None
+
+    def _bind_responsive_wrap(self, widget: tk.Misc, padding: int = 32, minimum: int = 220) -> None:
+        def update_wrap(_event=None) -> None:
+            try:
+                width = int(widget.winfo_width())
+            except Exception:
+                return
+            if width <= 1:
+                return
+            target = max(self._scaled(minimum), width - self._scaled(padding))
+            try:
+                widget.configure(wraplength=target)
+            except Exception:
+                return
+
+        widget.bind("<Configure>", update_wrap, add="+")
+        self.root.after(0, update_wrap)
+
     def _palette(self) -> dict[str, str]:
         return {
             "window_bg": "#EEF3F8",
@@ -448,7 +610,10 @@ class UpdaterApp:
         if "clam" in set(self.style.theme_names()):
             self.style.theme_use("clam")
 
-        self.style.configure(".", background=palette["window_bg"], foreground=palette["text_fg"], font=("Segoe UI", 10))
+        base_font_size = self._scaled(10)
+        self.root.option_add("*Font", f"{{{self._preferred_font_family()}}} {base_font_size}")
+
+        self.style.configure(".", background=palette["window_bg"], foreground=palette["text_fg"], font=self._font(10))
         self.style.configure("TFrame", background=palette["window_bg"])
         self.style.configure("TLabel", background=palette["window_bg"], foreground=palette["text_fg"])
         self.style.configure(
@@ -457,7 +622,7 @@ class UpdaterApp:
             foreground=palette["text_fg"],
             borderwidth=1,
             focusthickness=0,
-            padding=(12, 7),
+            padding=(self._scaled(12), self._scaled(7)),
         )
         self.style.map("TButton", background=[("active", palette["card_alt_bg"])])
         self.style.configure("Updater.TFrame", background=palette["window_bg"])
@@ -475,19 +640,17 @@ class UpdaterApp:
             relief="solid",
             bordercolor=palette["card_border"],
         )
-        self.style.configure("UpdaterStrip.TFrame", background=palette["strip_bg"], borderwidth=1, relief="solid", bordercolor=palette["card_border"])
-        self.style.configure("UpdaterStrip.TLabel", background=palette["strip_bg"], foreground=palette["strip_fg"], font=("Segoe UI Semibold", 8))
-        self.style.configure("UpdaterTitle.TLabel", background=palette["card_bg"], foreground=palette["title_fg"], font=("Segoe UI Semibold", 17))
-        self.style.configure("UpdaterSummary.TLabel", background=palette["card_bg"], foreground=palette["muted_fg"], font=("Segoe UI", 10))
-        self.style.configure("UpdaterMetaValue.TLabel", background=palette["card_bg"], foreground=palette["title_fg"], font=("Segoe UI Semibold", 13))
-        self.style.configure("UpdaterMetaLabel.TLabel", background=palette["card_bg"], foreground=palette["muted_fg"], font=("Segoe UI", 9))
-        self.style.configure("UpdaterSection.TLabel", background=palette["window_bg"], foreground=palette["title_fg"], font=("Segoe UI Semibold", 11))
-        self.style.configure("UpdaterBadge.TLabel", background=palette["soft_bg"], foreground=palette["soft_fg"], font=("Segoe UI Semibold", 9), padding=(8, 4))
-        self.style.configure("UpdaterHint.TLabel", background=palette["window_bg"], foreground=palette["muted_fg"], font=("Segoe UI", 9))
-        self.style.configure("UpdaterValue.TLabel", background=palette["card_bg"], foreground=palette["text_fg"], font=("Segoe UI", 10))
-        self.style.configure("UpdaterPrimary.TButton", background=palette["accent_bg"], foreground=palette["accent_fg"], borderwidth=1, padding=(14, 8))
+        self.style.configure("UpdaterTitle.TLabel", background=palette["card_bg"], foreground=palette["title_fg"], font=self._font(17, semibold=True))
+        self.style.configure("UpdaterSummary.TLabel", background=palette["card_bg"], foreground=palette["muted_fg"], font=self._font(10))
+        self.style.configure("UpdaterMetaValue.TLabel", background=palette["card_bg"], foreground=palette["title_fg"], font=self._font(13, semibold=True))
+        self.style.configure("UpdaterMetaLabel.TLabel", background=palette["card_bg"], foreground=palette["muted_fg"], font=self._font(9))
+        self.style.configure("UpdaterSection.TLabel", background=palette["window_bg"], foreground=palette["title_fg"], font=self._font(11, semibold=True))
+        self.style.configure("UpdaterBadge.TLabel", background=palette["soft_bg"], foreground=palette["soft_fg"], font=self._font(9, semibold=True), padding=(self._scaled(8), self._scaled(4)))
+        self.style.configure("UpdaterHint.TLabel", background=palette["window_bg"], foreground=palette["muted_fg"], font=self._font(9))
+        self.style.configure("UpdaterValue.TLabel", background=palette["card_bg"], foreground=palette["text_fg"], font=self._font(10))
+        self.style.configure("UpdaterPrimary.TButton", background=palette["accent_bg"], foreground=palette["accent_fg"], borderwidth=1, padding=(self._scaled(14), self._scaled(8)))
         self.style.map("UpdaterPrimary.TButton", background=[("active", palette["accent_active"])], foreground=[("active", palette["accent_fg"])])
-        self.style.configure("UpdaterQuiet.TButton", background=palette["card_bg"], foreground=palette["text_fg"], borderwidth=1, padding=(12, 8))
+        self.style.configure("UpdaterQuiet.TButton", background=palette["card_bg"], foreground=palette["text_fg"], borderwidth=1, padding=(self._scaled(12), self._scaled(8)))
         self.style.map("UpdaterQuiet.TButton", background=[("active", palette["card_alt_bg"])])
         self.style.configure(
             "TLabelframe",
@@ -497,7 +660,7 @@ class UpdaterApp:
             relief="solid",
             bordercolor=palette["card_border"],
         )
-        self.style.configure("TLabelframe.Label", background=palette["card_bg"], foreground=palette["title_fg"], font=("Segoe UI Semibold", 10))
+        self.style.configure("TLabelframe.Label", background=palette["card_bg"], foreground=palette["title_fg"], font=self._font(10, semibold=True))
         self.style.configure(
             "TEntry",
             fieldbackground=palette["input_bg"],
@@ -512,33 +675,6 @@ class UpdaterApp:
             lightcolor=palette["progress_bg"],
             darkcolor=palette["progress_bg"],
         )
-
-    def _bind_window_drag_widget(self, widget: tk.Misc) -> None:
-        try:
-            widget.configure(cursor="fleur")
-        except Exception:
-            pass
-
-        widget.bind("<ButtonPress-1>", self._begin_window_drag, add="+")
-        widget.bind("<B1-Motion>", self._perform_window_drag, add="+")
-        widget.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
-
-    def _begin_window_drag(self, event) -> str:
-        self._window_drag_offset = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
-        return "break"
-
-    def _perform_window_drag(self, event) -> str | None:
-        if not self._window_drag_offset:
-            return None
-        offset_x, offset_y = self._window_drag_offset
-        try:
-            self.root.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
-        except Exception:
-            return None
-        return "break"
-
-    def _end_window_drag(self, _event=None) -> None:
-        self._window_drag_offset = None
 
     def _download_dialog_profile(self, url: str) -> tuple[str, str, list[tuple[str, str]]]:
         lower = url.strip().lower()
@@ -1108,35 +1244,65 @@ class UpdaterApp:
         return self._read_manifest(source)
 
     def _build_ui(self) -> None:
-        outer = ttk.Frame(self.root, style="Updater.TFrame", padding=14)
+        palette = self._palette()
+        outer = ttk.Frame(self.root, style="Updater.TFrame", padding=self._scaled(14))
         outer.pack(fill="both", expand=True)
 
-        drag_strip = ttk.Frame(outer, style="UpdaterStrip.TFrame", height=18)
-        drag_strip.pack(fill="x", pady=(0, 8))
-        drag_strip.pack_propagate(False)
-        drag_label = ttk.Label(drag_strip, text="Drag Window", style="UpdaterStrip.TLabel", anchor="center")
-        drag_label.pack(fill="both", expand=True)
-        self._bind_window_drag_widget(drag_strip)
-        self._bind_window_drag_widget(drag_label)
+        body_canvas = tk.Canvas(
+            outer,
+            bg=palette["window_bg"],
+            highlightthickness=0,
+            borderwidth=0,
+            relief="flat",
+        )
+        body_scrollbar = ttk.Scrollbar(outer, orient="vertical", command=body_canvas.yview)
+        body_canvas.configure(yscrollcommand=body_scrollbar.set)
+        body_canvas.pack(side="left", fill="both", expand=True)
+        body_scrollbar.pack(side="right", fill="y")
 
-        hero = ttk.Frame(outer, style="UpdaterHero.TFrame", padding=(16, 14))
+        body = ttk.Frame(body_canvas, style="Updater.TFrame")
+        body_window_id = body_canvas.create_window((0, 0), window=body, anchor="nw")
+        self._body_canvas = body_canvas
+        self._body_frame = body
+        self._body_window_id = body_window_id
+
+        def refresh_scrollregion(_event=None) -> None:
+            try:
+                body_canvas.configure(scrollregion=body_canvas.bbox("all"))
+            except Exception:
+                return
+
+        def sync_body_width(_event=None) -> None:
+            try:
+                width = max(1, int(body_canvas.winfo_width()))
+                body_canvas.itemconfigure(body_window_id, width=width)
+            except Exception:
+                return
+
+        body.bind("<Configure>", refresh_scrollregion, add="+")
+        body_canvas.bind("<Configure>", sync_body_width, add="+")
+        self._register_mousewheel_target(body_canvas, lambda delta_units: body_canvas.yview_scroll(delta_units, "units"))
+        self._register_mousewheel_target(body, lambda delta_units: body_canvas.yview_scroll(delta_units, "units"))
+
+        hero = ttk.Frame(body, style="UpdaterHero.TFrame", padding=(self._scaled(16), self._scaled(14)))
         hero.pack(fill="x")
         hero.columnconfigure(0, weight=1)
 
         intro = ttk.Frame(hero, style="UpdaterHero.TFrame")
-        intro.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
+        intro.grid(row=0, column=0, sticky="nsew", padx=(0, self._scaled(14)))
         ttk.Label(intro, text="Release Control", style="UpdaterBadge.TLabel").pack(anchor="w")
         ttk.Label(intro, text=APP_TITLE, style="UpdaterTitle.TLabel").pack(anchor="w", pady=(10, 0))
-        ttk.Label(
+        summary_label = ttk.Label(
             intro,
             text=(
                 "Checks the canonical release surface, pulls metadata from a manifest or GitHub repo, "
                 "and downloads the correct installer package for the current platform."
             ),
             style="UpdaterSummary.TLabel",
-            wraplength=520,
             justify="left",
-        ).pack(anchor="w", pady=(6, 0))
+        )
+        summary_label.pack(anchor="w", pady=(self._scaled(6), 0), fill="x")
+        self._bind_responsive_wrap(summary_label, padding=0, minimum=240)
 
         stat_rail = ttk.Frame(hero, style="UpdaterHero.TFrame")
         stat_rail.grid(row=0, column=1, sticky="ne")
@@ -1145,95 +1311,109 @@ class UpdaterApp:
             ("GitHub + manifest aware", "Source support", (8, 0)),
             ("Windows + Linux", "Package targets", (8, 0)),
         ]:
-            card = ttk.Frame(stat_rail, style="UpdaterCard.TFrame", padding=(12, 10))
+            card = ttk.Frame(stat_rail, style="UpdaterCard.TFrame", padding=(self._scaled(12), self._scaled(10)))
             card.pack(fill="x", pady=pad)
             ttk.Label(card, text=value, style="UpdaterMetaValue.TLabel").pack(anchor="w")
             ttk.Label(card, text=label, style="UpdaterMetaLabel.TLabel").pack(anchor="w", pady=(3, 0))
 
-        source_card = ttk.Frame(outer, style="UpdaterCard.TFrame", padding=(14, 12))
-        source_card.pack(fill="x", pady=(10, 0))
+        def layout_hero(_event=None) -> None:
+            if hero.winfo_width() <= self._scaled(900):
+                intro.grid_configure(row=0, column=0, sticky="nsew", padx=(0, 0), pady=(0, self._scaled(12)))
+                stat_rail.grid_configure(row=1, column=0, sticky="ew")
+            else:
+                intro.grid_configure(row=0, column=0, sticky="nsew", padx=(0, self._scaled(14)), pady=(0, 0))
+                stat_rail.grid_configure(row=0, column=1, sticky="ne")
+
+        hero.bind("<Configure>", layout_hero, add="+")
+        self.root.after(0, layout_hero)
+
+        source_card = ttk.Frame(body, style="UpdaterCard.TFrame", padding=(self._scaled(14), self._scaled(12)))
+        source_card.pack(fill="x", pady=(self._scaled(10), 0))
         ttk.Label(source_card, text="Update source", style="UpdaterSection.TLabel").pack(anchor="w")
-        ttk.Label(
+        source_hint = ttk.Label(
             source_card,
             text="Use a manifest URL/file or point directly at a GitHub repository such as https://github.com/owner/repo.",
             style="UpdaterHint.TLabel",
-            wraplength=760,
             justify="left",
-        ).pack(anchor="w", pady=(4, 10))
+        )
+        source_hint.pack(anchor="w", pady=(self._scaled(4), self._scaled(10)), fill="x")
+        self._bind_responsive_wrap(source_hint, padding=0, minimum=280)
         source_row = ttk.Frame(source_card, style="UpdaterCard.TFrame")
         source_row.pack(fill="x")
         ttk.Entry(source_row, textvariable=self.source_var).pack(side="left", fill="x", expand=True)
-        ttk.Button(source_row, text="Browse File", style="UpdaterQuiet.TButton", command=self._browse_manifest).pack(side="left", padx=(8, 0))
+        ttk.Button(source_row, text="Browse File", style="UpdaterQuiet.TButton", command=self._browse_manifest).pack(side="left", padx=(self._scaled(8), 0))
 
-        release_card = ttk.Frame(outer, style="UpdaterCard.TFrame", padding=(14, 12))
-        release_card.pack(fill="x", pady=(10, 0))
+        release_card = ttk.Frame(body, style="UpdaterCard.TFrame", padding=(self._scaled(14), self._scaled(12)))
+        release_card.pack(fill="x", pady=(self._scaled(10), 0))
         ttk.Label(release_card, text="Release state", style="UpdaterSection.TLabel").pack(anchor="w")
 
         ver_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
-        ver_row.pack(fill="x", pady=(8, 0))
+        ver_row.pack(fill="x", pady=(self._scaled(8), 0))
         ttk.Label(ver_row, text="Current app version", style="UpdaterMetaLabel.TLabel").pack(side="left")
-        ttk.Entry(ver_row, width=12, textvariable=self.version_var).pack(side="left", padx=(8, 14))
+        ttk.Entry(ver_row, width=12, textvariable=self.version_var).pack(side="left", padx=(self._scaled(8), self._scaled(14)))
         ttk.Label(ver_row, textvariable=self.latest_var, style="UpdaterValue.TLabel").pack(side="left")
 
         dl_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
-        dl_row.pack(fill="x", pady=(8, 0))
-        ttk.Label(dl_row, textvariable=self.download_var, style="UpdaterValue.TLabel", wraplength=760, justify="left").pack(side="left", anchor="w")
+        dl_row.pack(fill="x", pady=(self._scaled(8), 0))
+        download_label = ttk.Label(dl_row, textvariable=self.download_var, style="UpdaterValue.TLabel", justify="left")
+        download_label.pack(side="left", anchor="w", fill="x", expand=True)
+        self._bind_responsive_wrap(download_label, padding=0, minimum=260)
         hash_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
-        hash_row.pack(fill="x", pady=(6, 0))
-        ttk.Label(hash_row, textvariable=self.sha256_var, style="UpdaterValue.TLabel", wraplength=760, justify="left").pack(side="left", anchor="w")
+        hash_row.pack(fill="x", pady=(self._scaled(6), 0))
+        sha_label = ttk.Label(hash_row, textvariable=self.sha256_var, style="UpdaterValue.TLabel", justify="left")
+        sha_label.pack(side="left", anchor="w", fill="x", expand=True)
+        self._bind_responsive_wrap(sha_label, padding=0, minimum=260)
         env_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
-        env_row.pack(fill="x", pady=(6, 0))
-        ttk.Label(env_row, textvariable=self.environment_var, style="UpdaterValue.TLabel", wraplength=760, justify="left").pack(side="left", anchor="w")
+        env_row.pack(fill="x", pady=(self._scaled(6), 0))
+        env_label = ttk.Label(env_row, textvariable=self.environment_var, style="UpdaterValue.TLabel", justify="left")
+        env_label.pack(side="left", anchor="w", fill="x", expand=True)
+        self._bind_responsive_wrap(env_label, padding=0, minimum=260)
         compatibility_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
-        compatibility_row.pack(fill="x", pady=(6, 0))
-        ttk.Label(compatibility_row, textvariable=self.compatibility_var, style="UpdaterValue.TLabel", wraplength=760, justify="left").pack(side="left", anchor="w")
+        compatibility_row.pack(fill="x", pady=(self._scaled(6), 0))
+        compatibility_label = ttk.Label(compatibility_row, textvariable=self.compatibility_var, style="UpdaterValue.TLabel", justify="left")
+        compatibility_label.pack(side="left", anchor="w", fill="x", expand=True)
+        self._bind_responsive_wrap(compatibility_label, padding=0, minimum=260)
 
         out_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
-        out_row.pack(fill="x", pady=(10, 0))
+        out_row.pack(fill="x", pady=(self._scaled(10), 0))
         ttk.Label(out_row, text="Download folder", style="UpdaterMetaLabel.TLabel").pack(side="left")
-        ttk.Entry(out_row, textvariable=self.output_dir_var).pack(side="left", fill="x", expand=True, padx=(8, 8))
+        ttk.Entry(out_row, textvariable=self.output_dir_var).pack(side="left", fill="x", expand=True, padx=(self._scaled(8), self._scaled(8)))
         ttk.Button(out_row, text="Browse", style="UpdaterQuiet.TButton", command=self._browse_output_dir).pack(side="left")
-        ttk.Button(out_row, text="Open", style="UpdaterQuiet.TButton", command=self._open_output_dir).pack(side="left", padx=(8, 0))
+        ttk.Button(out_row, text="Open", style="UpdaterQuiet.TButton", command=self._open_output_dir).pack(side="left", padx=(self._scaled(8), 0))
 
-        action_row = ttk.Frame(outer, style="Updater.TFrame")
-        action_row.pack(fill="x", pady=(10, 0))
-        ttk.Button(action_row, text="Check for Updates", style="UpdaterPrimary.TButton", command=self._check_updates_clicked).pack(side="left")
-        ttk.Button(action_row, text="Download Update", style="UpdaterQuiet.TButton", command=self._download_update_clicked).pack(side="left", padx=(8, 0))
-        ttk.Button(action_row, text="Open Download Link", style="UpdaterQuiet.TButton", command=self._open_download_link).pack(side="left", padx=(8, 0))
-
-        security_frame = ttk.Labelframe(outer, text="Security Options")
-        security_frame.pack(fill="x", pady=(10, 0))
+        security_frame = ttk.Labelframe(body, text="Security Options")
+        security_frame.pack(fill="x", pady=(self._scaled(10), 0))
         ttk.Checkbutton(
             security_frame,
-            text="Require HTTPS for update manifest URL",
+            text="Require HTTPS for manifest source",
             variable=self.require_https_manifest_var,
-        ).pack(anchor="w", padx=8, pady=(4, 0))
+        ).pack(anchor="w", padx=self._scaled(8), pady=(self._scaled(4), 0))
         ttk.Checkbutton(
             security_frame,
-            text="Require HTTPS for download URL",
+            text="Require HTTPS for download asset",
             variable=self.require_https_download_var,
-        ).pack(anchor="w", padx=8)
+        ).pack(anchor="w", padx=self._scaled(8))
         ttk.Checkbutton(
             security_frame,
-            text="Require SHA256 checksum in manifest and verify downloaded file",
+            text="Require SHA256 verification before keeping a download",
             variable=self.require_sha256_var,
-        ).pack(anchor="w", padx=8)
+        ).pack(anchor="w", padx=self._scaled(8))
         ttk.Checkbutton(
             security_frame,
             text="Confirm before opening external links",
             variable=self.confirm_external_links_var,
-        ).pack(anchor="w", padx=8, pady=(0, 4))
+        ).pack(anchor="w", padx=self._scaled(8), pady=(0, self._scaled(4)))
         ttk.Checkbutton(
             security_frame,
-            text="Restrict manifests and download URLs to trusted hosts",
+            text="Restrict updates to trusted hosts",
             variable=self.require_trusted_hosts_var,
-        ).pack(anchor="w", padx=8)
+        ).pack(anchor="w", padx=self._scaled(8))
         trusted_hosts_row = ttk.Frame(security_frame)
-        trusted_hosts_row.pack(fill="x", padx=8, pady=(4, 4))
+        trusted_hosts_row.pack(fill="x", padx=self._scaled(8), pady=(self._scaled(4), self._scaled(4)))
         ttk.Label(trusted_hosts_row, text="Trusted hosts").pack(side="left")
-        ttk.Entry(trusted_hosts_row, textvariable=self.trusted_hosts_var).pack(side="left", fill="x", expand=True, padx=(8, 0))
+        ttk.Entry(trusted_hosts_row, textvariable=self.trusted_hosts_var).pack(side="left", fill="x", expand=True, padx=(self._scaled(8), 0))
         security_action_row = ttk.Frame(security_frame)
-        security_action_row.pack(fill="x", padx=8, pady=(0, 6))
+        security_action_row.pack(fill="x", padx=self._scaled(8), pady=(0, self._scaled(6)))
         ttk.Checkbutton(
             security_action_row,
             text="Accept All Security Options",
@@ -1245,24 +1425,23 @@ class UpdaterApp:
             command=self._apply_security_settings_clicked,
         ).pack(side="right")
 
-        self.progress = ttk.Progressbar(outer, mode="determinate", maximum=100, value=0)
-        self.progress.pack(fill="x", pady=(10, 8))
-
-        notes_card = ttk.Frame(outer, style="UpdaterCard.TFrame", padding=(14, 12))
-        notes_card.pack(fill="both", expand=True, pady=(0, 0))
+        notes_card = ttk.Frame(body, style="UpdaterCard.TFrame", padding=(self._scaled(14), self._scaled(12)))
+        notes_card.pack(fill="both", expand=True, pady=(self._scaled(10), 0))
         ttk.Label(notes_card, text="Release notes", style="UpdaterSection.TLabel").pack(anchor="w")
-        ttk.Label(
+        notes_hint = ttk.Label(
             notes_card,
             text="This panel shows release notes, fallback notices, and any blocking security reasons discovered during the update check.",
             style="UpdaterHint.TLabel",
-            wraplength=760,
             justify="left",
-        ).pack(anchor="w", pady=(4, 8))
+        )
+        notes_hint.pack(anchor="w", pady=(self._scaled(4), self._scaled(8)), fill="x")
+        self._bind_responsive_wrap(notes_hint, padding=0, minimum=280)
 
-        palette = self._palette()
+        notes_text_frame = ttk.Frame(notes_card, style="UpdaterCard.TFrame")
+        notes_text_frame.pack(fill="both", expand=True)
         self.notes_box = tk.Text(
-            notes_card,
-            height=11,
+            notes_text_frame,
+            height=10,
             wrap="word",
             bg=palette["card_bg"],
             fg=palette["text_fg"],
@@ -1270,15 +1449,28 @@ class UpdaterApp:
             highlightthickness=1,
             highlightbackground=palette["card_border"],
             relief="flat",
-            padx=10,
-            pady=10,
+            font=self._font(10),
+            padx=self._scaled(10),
+            pady=self._scaled(10),
         )
-        self.notes_box.pack(fill="both", expand=True)
+        notes_scrollbar = ttk.Scrollbar(notes_text_frame, orient="vertical", command=self.notes_box.yview)
+        self.notes_box.configure(yscrollcommand=notes_scrollbar.set)
+        self.notes_box.pack(side="left", fill="both", expand=True)
+        notes_scrollbar.pack(side="right", fill="y")
         self.notes_box.insert("1.0", "Release notes will appear here after update check.")
         self.notes_box.configure(state="disabled")
 
-        status_bar = ttk.Frame(outer, style="UpdaterCard.TFrame", padding=(12, 8))
-        status_bar.pack(fill="x", pady=(10, 0))
+        action_row = ttk.Frame(outer, style="Updater.TFrame")
+        action_row.pack(fill="x", pady=(self._scaled(10), 0))
+        ttk.Button(action_row, text="Check for Updates", style="UpdaterPrimary.TButton", command=self._check_updates_clicked).pack(side="left")
+        ttk.Button(action_row, text="Download Update", style="UpdaterQuiet.TButton", command=self._download_update_clicked).pack(side="left", padx=(self._scaled(8), 0))
+        ttk.Button(action_row, text="Open Download Link", style="UpdaterQuiet.TButton", command=self._open_download_link).pack(side="left", padx=(self._scaled(8), 0))
+
+        self.progress = ttk.Progressbar(outer, mode="determinate", maximum=100, value=0)
+        self.progress.pack(fill="x", pady=(self._scaled(10), self._scaled(8)))
+
+        status_bar = ttk.Frame(outer, style="UpdaterCard.TFrame", padding=(self._scaled(12), self._scaled(8)))
+        status_bar.pack(fill="x")
         ttk.Label(status_bar, textvariable=self.status_var, style="UpdaterValue.TLabel").pack(anchor="w")
 
     def _browse_manifest(self) -> None:
@@ -1615,6 +1807,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 

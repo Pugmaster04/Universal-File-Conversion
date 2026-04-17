@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>io.github.pugmaster04.formatfoundry.desktop</id>
   <name>Format Foundry</name>
@@ -37,7 +37,7 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="1.8.13" date="2026-04-17">
+    <release version="1.8.14" date="2026-04-17">
       <description>
         <ul>
           <li>The updater now accepts GitHub release asset SHA256 digests so checksum verification works against the canonical release feed.</li>
@@ -93,6 +93,7 @@
     <category>Office</category>
   </categories>
 </component>
+
 
 
 
