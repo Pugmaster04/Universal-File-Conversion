@@ -167,7 +167,7 @@ You can also use the standalone updater executable (`FormatFoundry_Updater.exe`)
 - GitHub repo URL (checks latest release metadata/tags)
 
 Default updater source:
-- `https://github.com/Pugmaster04/Universal-File-Conversion`
+- `https://github.com/Pugmaster04/Format-Foundry`
 
 Updater security options include:
 - HTTPS-only manifest/download URLs

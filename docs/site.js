@@ -1,26 +1,26 @@
 (() => {
   const site = {
     version: "1.8.7",
-    repo: "https://github.com/Pugmaster04/Universal-File-Conversion",
-    releasePage: "https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest",
+    repo: "https://github.com/Pugmaster04/Format-Foundry",
+    releasePage: "https://github.com/Pugmaster04/Format-Foundry/releases/latest",
     links: {
-      windowsInstaller: "https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/FormatFoundry_Setup.exe",
-      windowsPortable: "https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/FormatFoundry.exe",
-      windowsUpdater: "https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/FormatFoundry_Updater.exe",
-      linuxDeb: "https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/format-foundry_latest_amd64.deb",
-      linuxAppImage: "https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/FormatFoundry_linux_latest_x86_64.AppImage",
-      linuxTarball: "https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/FormatFoundry_linux_x86_64.tar.gz",
+      windowsInstaller: "https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/FormatFoundry_Setup.exe",
+      windowsPortable: "https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/FormatFoundry.exe",
+      windowsUpdater: "https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/FormatFoundry_Updater.exe",
+      linuxDeb: "https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/format-foundry_latest_amd64.deb",
+      linuxAppImage: "https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/FormatFoundry_linux_latest_x86_64.AppImage",
+      linuxTarball: "https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/FormatFoundry_linux_x86_64.tar.gz",
     },
     lists: {
       windowsAlt: [
         {
-          href: "https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/FormatFoundry.exe",
+          href: "https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/FormatFoundry.exe",
           title: "Portable Windows app",
           description: "Single-file executable when you do not want the installer path.",
           action: "Download EXE",
         },
         {
-          href: "https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/FormatFoundry_Updater.exe",
+          href: "https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/FormatFoundry_Updater.exe",
           title: "Standalone updater",
           description: "Separate updater binary for manual update workflows.",
           action: "Download updater",
@@ -28,13 +28,13 @@
       ],
       linuxAlt: [
         {
-          href: "https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/FormatFoundry_linux_latest_x86_64.AppImage",
+          href: "https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/FormatFoundry_linux_latest_x86_64.AppImage",
           title: "Linux AppImage",
           description: "Portable self-contained build when you do not want a system package install.",
           action: "Download AppImage",
         },
         {
-          href: "https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/FormatFoundry_linux_x86_64.tar.gz",
+          href: "https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/FormatFoundry_linux_x86_64.tar.gz",
           title: "Linux tarball",
           description: "Raw packaged bundle for manual extraction or archive workflows.",
           action: "Download tarball",

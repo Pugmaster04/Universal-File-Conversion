@@ -31,7 +31,7 @@ SINGLE_INSTANCE_MUTEX_NAMES = (
     "Local\\UniversalFileUtilitySuiteUpdater_SingleInstanceMutex",
 )
 SINGLE_INSTANCE_LOCKFILE_NAME = "format_foundry_updater.lock"
-DEFAULT_GITHUB_REPO = "Pugmaster04/Universal-File-Conversion"
+DEFAULT_GITHUB_REPO = "Pugmaster04/Format-Foundry"
 DEFAULT_GITHUB_REPO_URL = f"https://github.com/{DEFAULT_GITHUB_REPO}"
 UPDATER_USER_AGENT = f"FormatFoundry-Updater/{CURRENT_VERSION}"
 DEFAULT_UPDATE_DOWNLOAD_PREFIX = "FormatFoundry_Update"

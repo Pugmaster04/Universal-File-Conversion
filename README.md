@@ -5,16 +5,16 @@ Format Foundry is a cross-platform desktop toolkit for conversion, compression, 
 Canonical release target: `1.8.7`
 
 Website:
-- Overview: [index.html](https://pugmaster04.github.io/Universal-File-Conversion/index.html)
-- Downloads: [downloads.html](https://pugmaster04.github.io/Universal-File-Conversion/downloads.html)
-- License status: [license.html](https://pugmaster04.github.io/Universal-File-Conversion/license.html)
+- Overview: [index.html](https://pugmaster04.github.io/Format-Foundry/index.html)
+- Downloads: [downloads.html](https://pugmaster04.github.io/Format-Foundry/downloads.html)
+- License status: [license.html](https://pugmaster04.github.io/Format-Foundry/license.html)
 
 ## Install
 
-[![Windows installer](https://img.shields.io/badge/Windows-Download%20Installer-19786B?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/FormatFoundry_Setup.exe)
-[![Ubuntu or Debian package](https://img.shields.io/badge/Ubuntu%20%2F%20Debian-Download%20.deb-19786B?style=for-the-badge&logo=ubuntu&logoColor=white)](https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/format-foundry_latest_amd64.deb)
+[![Windows installer](https://img.shields.io/badge/Windows-Download%20Installer-19786B?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/FormatFoundry_Setup.exe)
+[![Ubuntu or Debian package](https://img.shields.io/badge/Ubuntu%20%2F%20Debian-Download%20.deb-19786B?style=for-the-badge&logo=ubuntu&logoColor=white)](https://github.com/Pugmaster04/Format-Foundry/releases/latest/download/format-foundry_latest_amd64.deb)
 
-If you want the manual artifact list instead of the direct installer buttons, use the [latest release page](https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest).
+If you want the manual artifact list instead of the direct installer buttons, use the [latest release page](https://github.com/Pugmaster04/Format-Foundry/releases/latest).
 
 ### Windows
 
