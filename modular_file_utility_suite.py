@@ -6342,8 +6342,6 @@ class ModuleTab(ttk.Frame):
     def build_module_shell(self) -> ttk.Frame:
         copy = self.MODULE_COPY.get(self.tab_name, {})
         summary = str(copy.get("summary", "")).strip()
-        highlights = [str(item).strip() for item in copy.get("highlights", []) if str(item).strip()]
-        workflow = str(copy.get("workflow", "")).strip()
 
         viewport = ttk.Frame(self, style="Surface.TFrame")
         viewport.pack(fill="both", expand=True)
@@ -6388,10 +6386,7 @@ class ModuleTab(ttk.Frame):
         hero_inner = ttk.Frame(hero, style="ModuleHeroBody.TFrame", padding=(14, 14))
         hero_inner.pack(fill="x")
 
-        title_row = ttk.Frame(hero_inner, style="ModuleHeroBody.TFrame")
-        title_row.pack(fill="x")
-        ttk.Label(title_row, text="Workflow module", style="ModuleEyebrow.TLabel").pack(side="left")
-        ttk.Label(title_row, text="Active workspace", style="ModuleBadge.TLabel").pack(side="right")
+        ttk.Label(hero_inner, text="Tool descriptor", style="ModuleEyebrow.TLabel").pack(anchor="w")
 
         ttk.Label(hero_inner, text=self.tab_name, style="ModuleTitle.TLabel").pack(anchor="w", pady=(10, 0))
 
@@ -6405,34 +6400,6 @@ class ModuleTab(ttk.Frame):
             )
             summary_label.pack(anchor="w", pady=(6, 0))
             self.app._bind_responsive_wrap(summary_label, padding=24, minimum=320)
-
-        if highlights:
-            chips = ttk.Frame(hero_inner, style="ModuleHeroBody.TFrame")
-            chips.pack(fill="x", pady=(10, 0))
-            for index, item in enumerate(highlights):
-                ttk.Label(chips, text=item, style="ModuleChip.TLabel").pack(side="left", padx=(0 if index == 0 else 8, 0))
-
-        workflow_panel = ttk.Frame(hero_inner, style="ModuleHeroPanel.TFrame", padding=(12, 10))
-        workflow_panel.pack(fill="x", pady=(10, 0))
-        ttk.Label(workflow_panel, text="Recommended flow", style="ModuleWorkflow.TLabel").pack(anchor="w")
-        workflow_label = ttk.Label(
-            workflow_panel,
-            text=workflow or "Add the source, configure the target behavior, and run the queue from this module.",
-            style="ModuleLead.TLabel",
-            wraplength=1180,
-            justify="left",
-        )
-        workflow_label.pack(anchor="w", pady=(4, 0))
-        self.app._bind_responsive_wrap(workflow_label, padding=20, minimum=320)
-
-        if workflow:
-            detail_label = ttk.Label(
-                workflow_panel,
-                text="Designed to stay readable while jobs are in flight.",
-                style="ModuleLead.TLabel",
-            )
-            detail_label.pack(anchor="w", pady=(6, 0))
-            self.app._bind_responsive_wrap(detail_label, padding=20, minimum=260)
 
         content = ttk.Frame(shell, style="Surface.TFrame")
         content.pack(fill="both", expand=True)
