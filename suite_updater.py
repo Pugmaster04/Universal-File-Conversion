@@ -31,7 +31,7 @@ from support_runtime import (
 
 
 APP_TITLE = "Format Foundry Updater"
-CURRENT_VERSION = "1.8.7"
+CURRENT_VERSION = "1.8.8"
 APP_SLUG = "FormatFoundry"
 LEGACY_APP_SLUGS = ("UniversalConversionHubUCH", "UniversalConversionHubHCB", "UniversalFileUtilitySuite")
 SINGLE_INSTANCE_MUTEX_NAMES = (

@@ -9,17 +9,17 @@ This changelog includes:
 
 ## [Unreleased]
 
+## [1.8.8] - 2026-04-16
+
 ### Added
 - Backends / Links now shows detected backend versions plus an environment/support summary with trusted update-host status.
 - `File -> Export Bug Report...` now writes a structured JSON report with OS details, backend versions, security/update settings, and a recent activity-log tail.
 - Added a GitHub bug-report template that asks users to attach the exported environment report.
 
 ### Fixed
-- The first-run setup wizard now keeps its action buttons visible on Linux by using a scrollable content area with a fixed footer, plus keyboard shortcuts for continue and close.
+- Linux module screens now scale more readably on common desktop sizes, use Linux-friendly fonts, and keep bottom-of-window controls reachable through a scrollable module shell.
 
 ### Changed
-- Linux AppStream metadata now includes release notes, a screenshot, age-rating metadata, richer project links, and a proprietary-license reference page so software centers can show more complete app details.
-- Linux packaging now validates AppStream metadata with `appstreamcli` during build and CI.
 - Update manifests can now include compatibility metadata so the app/updater can avoid surfacing releases that do not target the current platform, architecture, or backend baseline.
 - The app and updater now support a trusted-host allowlist for update manifests and download URLs in addition to the existing HTTPS and SHA256 controls.
 - Headless `--smoke-test` output now includes environment/support details instead of only path existence checks.

@@ -1,6 +1,6 @@
 (() => {
   const site = {
-    version: "1.8.7",
+    version: "1.8.8",
     repo: "https://github.com/Pugmaster04/Format-Foundry",
     releasePage: "https://github.com/Pugmaster04/Format-Foundry/releases/latest",
     links: {

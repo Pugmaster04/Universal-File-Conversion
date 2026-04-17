@@ -37,6 +37,22 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.8.8" date="2026-04-16">
+      <description>
+        <ul>
+          <li>Improved Linux readability with adaptive scaling, Linux-friendly fonts, and scrollable module content that keeps bottom controls reachable.</li>
+          <li>Added structured support diagnostics, backend version reporting, and exportable bug reports for long-term support and troubleshooting.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.8.7" date="2026-04-16">
+      <description>
+        <ul>
+          <li>Fixed Linux first-run setup so action buttons remain visible and keyboard shortcuts can complete the wizard.</li>
+          <li>Expanded AppStream metadata with release notes, screenshot data, content rating, and license-status links for software centers.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.8.6" date="2026-04-16">
       <description>
         <ul>
