@@ -84,7 +84,7 @@ except Exception:
 APP_TITLE = "Format Foundry"
 APP_SLUG = "FormatFoundry"
 LEGACY_APP_SLUGS = ("UniversalConversionHubUCH", "UniversalConversionHubHCB", "UniversalFileUtilitySuite")
-APP_VERSION = "1.8.14"
+APP_VERSION = "1.8.15"
 DEFAULT_UPDATE_MANIFEST_URL = ""
 APP_EXE_BASENAME = "FormatFoundry"
 UPDATER_EXE_BASENAME = "FormatFoundry_Updater"
@@ -2282,7 +2282,7 @@ class SuiteApp:
 
         ttk.Label(
             content_body,
-            text='Manifest example: {"latest_version":"1.8.14","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Manifest example: {"latest_version":"1.8.15","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=590,
             justify="left",
@@ -2628,6 +2628,63 @@ class SuiteApp:
 
         widget.bind("<Configure>", update_wrap, add="+")
         self.root.after(0, update_wrap)
+
+    def _bind_flow_layout(
+        self,
+        container: tk.Misc,
+        widgets: list[tk.Misc],
+        *,
+        min_item_width: int = 160,
+        horizontal_gap: int = 8,
+        vertical_gap: int = 6,
+        stretch: bool = False,
+        max_columns: int | None = None,
+    ) -> None:
+        def relayout(_event=None) -> None:
+            if not widgets:
+                return
+            try:
+                width = max(1, int(container.winfo_width()))
+            except Exception:
+                return
+            if width <= 1:
+                return
+
+            gap_x = self._scaled(horizontal_gap)
+            gap_y = self._scaled(vertical_gap)
+            target_width = self._scaled(min_item_width)
+            try:
+                requested = max(int(widget.winfo_reqwidth()) for widget in widgets if widget.winfo_exists())
+            except ValueError:
+                requested = target_width
+            cell_width = max(target_width, requested)
+            divisor = max(1, cell_width + gap_x)
+            column_limit = max_columns or len(widgets)
+            columns = max(1, min(column_limit, width // divisor))
+
+            for index in range(len(widgets) + 4):
+                try:
+                    container.grid_columnconfigure(index, weight=0, uniform="")
+                except Exception:
+                    break
+            if stretch:
+                for column in range(columns):
+                    container.grid_columnconfigure(column, weight=1, uniform=f"{str(container)}-flow")
+
+            for widget in widgets:
+                try:
+                    widget.grid_forget()
+                except Exception:
+                    continue
+
+            for index, widget in enumerate(widgets):
+                row, column = divmod(index, columns)
+                padx = (0, gap_x if column < columns - 1 else 0)
+                pady = (0 if row == 0 else gap_y, 0)
+                widget.grid(row=row, column=column, sticky=("ew" if stretch else "w"), padx=padx, pady=pady)
+
+        container.bind("<Configure>", relayout, add="+")
+        self.root.after(0, relayout)
 
     def high_contrast_enabled(self) -> bool:
         return bool(self.settings.get("high_contrast_mode", False))
@@ -3502,9 +3559,12 @@ class SuiteApp:
         self.drag_drop_note_label.pack(anchor="w", pady=(6, 0))
         self._bind_responsive_wrap(self.drag_drop_note_label, padding=24, minimum=320)
         signal_row = ttk.Frame(intro_col, style="HeaderCard.TFrame")
-        signal_row.pack(anchor="w", pady=(10, 0))
-        for index, text in enumerate(("Cross-platform", "Batch-ready", "Installer-first", "Accessibility-aware")):
-            ttk.Label(signal_row, text=text, style="ModuleChip.TLabel").pack(side="left", padx=(0 if index == 0 else 8, 0))
+        signal_row.pack(fill="x", pady=(10, 0))
+        signal_widgets: list[tk.Misc] = []
+        for text in ("Cross-platform", "Batch-ready", "Installer-first", "Accessibility-aware"):
+            chip = ttk.Label(signal_row, text=text, style="ModuleChip.TLabel")
+            signal_widgets.append(chip)
+        self._bind_flow_layout(signal_row, signal_widgets, min_item_width=150, horizontal_gap=8, vertical_gap=8, max_columns=4)
 
         meta_col = ttk.Frame(hero_row, style="HeaderCard.TFrame")
         meta_col.grid(row=0, column=1, sticky="ne")
@@ -3520,6 +3580,17 @@ class SuiteApp:
             else:
                 ttk.Label(panel, text=str(value), style="HeaderStatValue.TLabel").pack(anchor="w")
             ttk.Label(panel, text=label, style="HeaderStatLabel.TLabel").pack(anchor="w", pady=(3, 0))
+
+        def relayout_header(_event=None) -> None:
+            if hero_row.winfo_width() <= self._scaled(980):
+                intro_col.grid_configure(row=0, column=0, sticky="nsew", padx=(0, 0), pady=(0, self._scaled(12)))
+                meta_col.grid_configure(row=1, column=0, sticky="ew")
+            else:
+                intro_col.grid_configure(row=0, column=0, sticky="nsew", padx=(0, self._scaled(14)), pady=(0, 0))
+                meta_col.grid_configure(row=0, column=1, sticky="ne")
+
+        hero_row.bind("<Configure>", relayout_header, add="+")
+        self.root.after(0, relayout_header)
 
         quick_shell = ttk.Frame(overview_panel_host, style="App.TFrame")
         quick_shell.pack(fill="x", pady=(8, 0))
@@ -3674,8 +3745,11 @@ class SuiteApp:
         group.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 10, 0))
         body = ttk.Frame(group, style="Card.TFrame")
         body.pack(fill="x", expand=True, padx=8, pady=8)
-        for index, (label, command, style_name) in enumerate(actions):
-            ttk.Button(body, text=label, style=style_name, command=command).pack(side="left", padx=(0 if index == 0 else 6, 0))
+        buttons: list[tk.Misc] = []
+        for label, command, style_name in actions:
+            button = ttk.Button(body, text=label, style=style_name, command=command)
+            buttons.append(button)
+        self._bind_flow_layout(body, buttons, min_item_width=170, horizontal_gap=6, vertical_gap=6, stretch=True, max_columns=len(buttons))
 
     def _apply_overview_panel_visibility(self, log_change: bool = True) -> None:
         host = self._overview_panel_host
@@ -4669,11 +4743,20 @@ class SuiteApp:
     def _open_settings_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
         dialog.title("Settings")
-        dialog.geometry("840x670")
-        dialog.minsize(780, 610)
         dialog.transient(self.root)
         dialog.grab_set()
         self._apply_window_icon_to(dialog)
+        try:
+            screen_width = max(1, int(dialog.winfo_screenwidth()))
+            screen_height = max(1, int(dialog.winfo_screenheight()))
+        except Exception:
+            screen_width, screen_height = (1920, 1080)
+        usable_width = max(self._scaled(720), screen_width - self._scaled(48))
+        usable_height = max(self._scaled(560), screen_height - self._scaled(72))
+        dialog_width = min(usable_width, max(self._scaled(820), int(screen_width * 0.70)))
+        dialog_height = min(usable_height, max(self._scaled(640), int(screen_height * 0.78)))
+        dialog.geometry(f"{dialog_width}x{dialog_height}")
+        dialog.minsize(min(usable_width, self._scaled(700)), min(usable_height, self._scaled(520)))
 
         output_var = StringVar(value=str(self.settings.get("output_folder", self.default_output_root)))
         update_url_var = StringVar(value=str(self.settings.get("update_manifest_url", "")))
@@ -4701,26 +4784,61 @@ class SuiteApp:
         )
 
         outer = self._build_draggable_dialog_shell(dialog, drag_label="Drag Settings")
+        palette = self._theme_palette(bool(self.dark_mode_var.get()))
 
         ttk.Label(outer, text="Settings", font=self._font(14, semibold=True)).pack(anchor="w")
-        ttk.Label(
+        settings_intro = ttk.Label(
             outer,
             text="Adjust startup, output, visual, and processing defaults for better stability and performance.",
             foreground="#475A72",
-            wraplength=760,
-        ).pack(anchor="w", pady=(4, 10))
+            justify="left",
+        )
+        settings_intro.pack(anchor="w", pady=(4, 10), fill="x")
+        self._bind_responsive_wrap(settings_intro, padding=8, minimum=300)
 
         tabs = ttk.Notebook(outer)
         tabs.pack(fill="both", expand=True)
 
-        general_tab = ttk.Frame(tabs, style="App.TFrame", padding=12)
-        startup_tab = ttk.Frame(tabs, style="App.TFrame", padding=12)
-        performance_tab = ttk.Frame(tabs, style="App.TFrame", padding=12)
-        security_tab = ttk.Frame(tabs, style="App.TFrame", padding=12)
-        tabs.add(general_tab, text="General")
-        tabs.add(startup_tab, text="Startup / Updates")
-        tabs.add(performance_tab, text="Performance / Logs")
-        tabs.add(security_tab, text="Security")
+        def make_scrollable_settings_tab(label: str) -> ttk.Frame:
+            tab_host = ttk.Frame(tabs, style="App.TFrame")
+            tabs.add(tab_host, text=label)
+            viewport = ttk.Frame(tab_host, style="App.TFrame")
+            viewport.pack(fill="both", expand=True)
+            canvas = tk.Canvas(
+                viewport,
+                bg=palette["surface_bg"],
+                highlightthickness=0,
+                borderwidth=0,
+                relief="flat",
+                takefocus=0,
+            )
+            scrollbar = ttk.Scrollbar(viewport, orient="vertical", command=canvas.yview)
+            scrollbar.pack(side="right", fill="y")
+            canvas.pack(side="left", fill="both", expand=True)
+            canvas.configure(yscrollcommand=scrollbar.set)
+
+            body = ttk.Frame(canvas, style="App.TFrame", padding=12)
+            body_window = canvas.create_window((0, 0), window=body, anchor="nw")
+
+            def sync(_event=None) -> None:
+                try:
+                    canvas_width = max(1, int(canvas.winfo_width()))
+                    canvas.itemconfigure(body_window, width=canvas_width)
+                    canvas.configure(scrollregion=canvas.bbox("all"))
+                except Exception:
+                    return
+
+            canvas.bind("<Configure>", sync, add="+")
+            body.bind("<Configure>", sync, add="+")
+            self._register_mousewheel_target(canvas, lambda delta_units: canvas.yview_scroll(delta_units, "units"))
+            self._register_mousewheel_target(body, lambda delta_units: canvas.yview_scroll(delta_units, "units"))
+            dialog.after(0, sync)
+            return body
+
+        general_tab = make_scrollable_settings_tab("General")
+        startup_tab = make_scrollable_settings_tab("Startup / Updates")
+        performance_tab = make_scrollable_settings_tab("Performance / Logs")
+        security_tab = make_scrollable_settings_tab("Security")
 
         def open_output_from_var() -> None:
             target = Path(output_var.get().strip() or str(self.default_output_root))
@@ -4785,38 +4903,51 @@ class SuiteApp:
 
         ttk.Label(general_tab, text="Window controls for this session:").pack(anchor="w", pady=(12, 0))
         session_window_row = ttk.Frame(general_tab, style="App.TFrame")
-        session_window_row.pack(anchor="w", pady=(4, 0))
-        ttk.Button(session_window_row, text="Toggle Dark Mode", style="Shell.TButton", command=self._toggle_dark_mode_button).pack(side="left")
-        ttk.Button(session_window_row, text="Toggle Borderless", style="Shell.TButton", command=self._toggle_borderless_button).pack(side="left", padx=(6, 0))
-        ttk.Button(session_window_row, text="Toggle Fullscreen", style="Shell.TButton", command=self._toggle_fullscreen_button).pack(side="left", padx=(6, 0))
+        session_window_row.pack(fill="x", pady=(4, 0))
+        session_window_buttons = [
+            ttk.Button(session_window_row, text="Toggle Dark Mode", style="Shell.TButton", command=self._toggle_dark_mode_button),
+            ttk.Button(session_window_row, text="Toggle Borderless", style="Shell.TButton", command=self._toggle_borderless_button),
+            ttk.Button(session_window_row, text="Toggle Fullscreen", style="Shell.TButton", command=self._toggle_fullscreen_button),
+        ]
+        self._bind_flow_layout(session_window_row, session_window_buttons, min_item_width=180, horizontal_gap=6, vertical_gap=6, max_columns=3)
 
         ttk.Label(general_tab, text="Help and reference:").pack(anchor="w", pady=(12, 0))
         help_row = ttk.Frame(general_tab, style="App.TFrame")
-        help_row.pack(anchor="w", pady=(4, 0))
-        ttk.Button(help_row, text="How-To", style="Shell.TButton", command=self._open_how_to_window).pack(side="left")
-        ttk.Button(help_row, text="About", style="Shell.TButton", command=self._show_about).pack(side="left", padx=(6, 0))
+        help_row.pack(fill="x", pady=(4, 0))
+        help_buttons = [
+            ttk.Button(help_row, text="How-To", style="Shell.TButton", command=self._open_how_to_window),
+            ttk.Button(help_row, text="About", style="Shell.TButton", command=self._show_about),
+        ]
+        self._bind_flow_layout(help_row, help_buttons, min_item_width=140, horizontal_gap=6, vertical_gap=6, max_columns=2)
 
         ttk.Label(general_tab, text="Install and removal:").pack(anchor="w", pady=(12, 0))
         maintenance_row = ttk.Frame(general_tab, style="App.TFrame")
-        maintenance_row.pack(anchor="w", pady=(4, 0))
-        ttk.Button(maintenance_row, text="Open Program Folder", style="Shell.TButton", command=lambda: self._open_path(self.runtime_dir)).pack(side="left")
-        ttk.Button(maintenance_row, text="Open Settings Folder", style="Shell.TButton", command=lambda: self._open_path(self.settings_path.parent)).pack(side="left", padx=(6, 0))
-        ttk.Button(maintenance_row, text="Uninstall App", style="Shell.TButton", command=self._open_uninstall_dialog).pack(side="left", padx=(6, 0))
-        ttk.Label(
+        maintenance_row.pack(fill="x", pady=(4, 0))
+        maintenance_buttons = [
+            ttk.Button(maintenance_row, text="Open Program Folder", style="Shell.TButton", command=lambda: self._open_path(self.runtime_dir)),
+            ttk.Button(maintenance_row, text="Open Settings Folder", style="Shell.TButton", command=lambda: self._open_path(self.settings_path.parent)),
+            ttk.Button(maintenance_row, text="Uninstall App", style="Shell.TButton", command=self._open_uninstall_dialog),
+        ]
+        self._bind_flow_layout(maintenance_row, maintenance_buttons, min_item_width=190, horizontal_gap=6, vertical_gap=6, max_columns=3)
+        maintenance_label = ttk.Label(
             general_tab,
             text="Uninstall launches the platform-specific removal flow when available and keeps your settings/output folders unless you remove them separately.",
             foreground="#57687F",
-            wraplength=760,
-        ).pack(anchor="w", pady=(4, 0))
+            justify="left",
+        )
+        maintenance_label.pack(anchor="w", pady=(4, 0), fill="x")
+        self._bind_responsive_wrap(maintenance_label, padding=8, minimum=300)
 
         ttk.Label(general_tab, text="Update manifest URL (optional):").pack(anchor="w", pady=(10, 0))
         ttk.Entry(general_tab, textvariable=update_url_var).pack(fill="x", pady=(4, 0))
-        ttk.Label(
+        update_example_label = ttk.Label(
             general_tab,
-            text='Example JSON: {"latest_version":"1.8.14","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Example JSON: {"latest_version":"1.8.15","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
-            wraplength=760,
-        ).pack(anchor="w", pady=(4, 0))
+            justify="left",
+        )
+        update_example_label.pack(anchor="w", pady=(4, 0), fill="x")
+        self._bind_responsive_wrap(update_example_label, padding=8, minimum=300)
 
         ttk.Checkbutton(startup_tab, text="Check for updates on startup", variable=update_check_var).pack(anchor="w")
         ttk.Checkbutton(
@@ -4831,7 +4962,12 @@ class SuiteApp:
         ttk.Label(duration_row, text="Startup animation length (seconds):").pack(side="left")
         ttk.Entry(duration_row, width=8, textvariable=startup_animation_seconds_var).pack(side="left", padx=(8, 0))
 
-        ttk.Button(startup_tab, text="Install Missing Backends Now", command=self._open_backend_install_assistant).pack(anchor="w", pady=(12, 0))
+        backend_button_row = ttk.Frame(startup_tab, style="App.TFrame")
+        backend_button_row.pack(fill="x", pady=(12, 0))
+        backend_buttons = [
+            ttk.Button(backend_button_row, text="Install Missing Backends Now", command=self._open_backend_install_assistant),
+        ]
+        self._bind_flow_layout(backend_button_row, backend_buttons, min_item_width=240, max_columns=1)
 
         threads_row = ttk.Frame(performance_tab)
         threads_row.pack(anchor="w", pady=(0, 8))
@@ -4843,7 +4979,7 @@ class SuiteApp:
         ttk.Label(logs_row, text="Max activity log lines to keep:").pack(side="left")
         ttk.Entry(logs_row, width=8, textvariable=log_lines_var).pack(side="left", padx=(8, 0))
 
-        ttk.Label(
+        performance_label = ttk.Label(
             performance_tab,
             text=(
                 "Higher FFmpeg thread counts can improve speed on multi-core systems, but may increase CPU usage.\n"
@@ -4851,15 +4987,18 @@ class SuiteApp:
             ),
             foreground="#57687F",
             justify="left",
-            wraplength=760,
-        ).pack(anchor="w", pady=(2, 0))
+        )
+        performance_label.pack(anchor="w", pady=(2, 0), fill="x")
+        self._bind_responsive_wrap(performance_label, padding=8, minimum=300)
 
-        ttk.Label(
+        security_intro = ttk.Label(
             security_tab,
             text="Security controls for update checks and external links.",
             foreground="#57687F",
-            wraplength=760,
-        ).pack(anchor="w", pady=(0, 8))
+            justify="left",
+        )
+        security_intro.pack(anchor="w", pady=(0, 8), fill="x")
+        self._bind_responsive_wrap(security_intro, padding=8, minimum=300)
         ttk.Checkbutton(
             security_tab,
             text="Confirm before opening external web links",
@@ -4887,16 +5026,17 @@ class SuiteApp:
         ).pack(anchor="w", pady=(2, 0))
         ttk.Label(security_tab, text="Trusted update hosts (comma-separated):").pack(anchor="w", pady=(10, 0))
         ttk.Entry(security_tab, textvariable=security_trusted_hosts_var).pack(fill="x", pady=(4, 0))
-        ttk.Label(
+        security_guidance = ttk.Label(
             security_tab,
             text=(
                 "Recommended for production: keep HTTPS requirements enabled.\n"
                 "Restrict update hosts to your own release surface so the updater cannot be redirected to arbitrary domains."
             ),
             foreground="#57687F",
-            wraplength=760,
             justify="left",
-        ).pack(anchor="w", pady=(8, 0))
+        )
+        security_guidance.pack(anchor="w", pady=(8, 0), fill="x")
+        self._bind_responsive_wrap(security_guidance, padding=8, minimum=300)
 
         status_var = StringVar(value="")
         ttk.Label(outer, textvariable=status_var, foreground="#8A5A00").pack(anchor="w", pady=(8, 4))
@@ -5006,11 +5146,15 @@ class SuiteApp:
             self.log("Settings updated from Settings dialog.")
             dialog.destroy()
 
-        buttons = ttk.Frame(outer)
+        buttons = ttk.Frame(outer, style="App.TFrame")
         buttons.pack(fill="x", pady=(6, 0))
-        ttk.Button(buttons, text="Restore Defaults", command=restore_defaults).pack(side="left")
-        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="right")
-        ttk.Button(buttons, text="Save Settings", command=save_settings).pack(side="right", padx=(0, 8))
+        footer_buttons = [
+            ttk.Button(buttons, text="Restore Defaults", command=restore_defaults),
+            ttk.Button(buttons, text="Cancel", command=dialog.destroy),
+            ttk.Button(buttons, text="Save Settings", command=save_settings),
+        ]
+        self._bind_flow_layout(buttons, footer_buttons, min_item_width=150, horizontal_gap=8, vertical_gap=6, max_columns=3)
+        self._center_window_on_screen(dialog)
 
     def _locate_how_to_file(self) -> Path | None:
         candidates: list[Path] = []
@@ -11494,6 +11638,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 

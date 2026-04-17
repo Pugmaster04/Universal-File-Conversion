@@ -32,7 +32,7 @@ from support_runtime import (
 
 
 APP_TITLE = "Format Foundry Updater"
-CURRENT_VERSION = "1.8.14"
+CURRENT_VERSION = "1.8.15"
 APP_SLUG = "FormatFoundry"
 LEGACY_APP_SLUGS = ("UniversalConversionHubUCH", "UniversalConversionHubHCB", "UniversalFileUtilitySuite")
 LEGACY_GITHUB_REPOS = ("Pugmaster04/Universal-File-Conversion",)
@@ -1807,6 +1807,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 

@@ -9,6 +9,13 @@ This changelog includes:
 
 ## [Unreleased]
 
+## [1.8.15] - 2026-04-17
+
+### Fixed
+- The main window header and quick-action shell now reflow when the window narrows, instead of clipping chips and top-level actions.
+- The settings dialog now uses scrollable notebook tabs, so shrinking the window no longer hides lower sections or action buttons.
+- Settings dialog button rows now wrap more consistently across Windows and Linux, which keeps session controls, maintenance actions, and footer buttons reachable at smaller widths.
+
 ## [1.8.14] - 2026-04-17
 
 ### Fixed
