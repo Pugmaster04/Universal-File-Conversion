@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Format Foundry Download Center</title>
+  <meta name="description" content="Direct download center for Format Foundry Windows and Linux installers, portable builds, and release artifacts.">
+  <link rel="icon" href="site-assets/format-foundry.ico" sizes="any">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="site.css">
+  <script defer src="site.js"></script>
+</head>
+<body class="page-downloads">
+  <div class="site-chrome"></div>
+  <header class="topbar">
+    <a class="wordmark" href="index.html" aria-label="Format Foundry home">
+      <span class="wordmark-mark">FF</span>
+      <span class="wordmark-text">Format Foundry</span>
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="index.html">Overview</a>
+      <a href="downloads.html" aria-current="page">Downloads</a>
+      <a data-link="releasePage" href="#" target="_blank" rel="noreferrer">Latest release</a>
+      <a data-link="repo" href="#" target="_blank" rel="noreferrer">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero hero-downloads">
+      <div class="hero-copy reveal reveal-fast">
+        <p class="eyebrow">Download center</p>
+        <h1>Use the installer that matches the machine. Keep the alternatives close.</h1>
+        <p class="lede">The direct buttons below point at the live latest release assets. That keeps the site aligned with the shipping binaries instead of a stale README snapshot.</p>
+        <div class="cta-row">
+          <a class="button button-primary" data-link="windowsInstaller" href="#">Windows installer</a>
+          <a class="button button-secondary" data-link="linuxDeb" href="#">Ubuntu / Debian .deb</a>
+          <a class="button button-secondary" data-link="releasePage" href="#" target="_blank" rel="noreferrer">Manual asset list</a>
+        </div>
+      </div>
+      <div class="release-panel reveal">
+        <p class="release-panel-label">Current shipping version</p>
+        <h2 data-version>1.8.5</h2>
+        <p>Cross-platform desktop toolkit with direct latest-release asset links.</p>
+        <a class="text-link" data-link="releasePage" href="#" target="_blank" rel="noreferrer">Open release page</a>
+      </div>
+    </section>
+
+    <section class="section section-download-grid">
+      <div class="section-head reveal">
+        <p class="section-label">Recommended installs</p>
+        <h2>Take the standard path first.</h2>
+      </div>
+      <div class="download-grid">
+        <article class="download-panel reveal">
+          <div>
+            <p class="platform-kicker">Windows</p>
+            <h3>Installer</h3>
+            <p>Normal install path for desktop users. Includes Start-menu integration and uninstall support.</p>
+          </div>
+          <div class="download-actions">
+            <a class="button button-primary" data-link="windowsInstaller" href="#">Download EXE installer</a>
+            <p class="download-note">Best for normal installs.</p>
+          </div>
+        </article>
+        <article class="download-panel reveal">
+          <div>
+            <p class="platform-kicker">Ubuntu / Debian</p>
+            <h3>Debian package</h3>
+            <p>System install path for Ubuntu 24.04 and other Debian-family desktops, without needing the source folder after install.</p>
+          </div>
+          <div class="download-actions">
+            <a class="button button-primary" data-link="linuxDeb" href="#">Download .deb package</a>
+            <p class="download-note">Best for normal Linux installs.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section section-alt-assets">
+      <div class="section-head reveal">
+        <p class="section-label">Alternative artifacts</p>
+        <h2>Use the fallback build when the standard install path is not the right fit.</h2>
+      </div>
+      <div class="asset-columns">
+        <div class="asset-column reveal">
+          <p class="column-title">Windows</p>
+          <div class="asset-list" data-render-list="windowsAlt"></div>
+        </div>
+        <div class="asset-column reveal">
+          <p class="column-title">Linux</p>
+          <div class="asset-list" data-render-list="linuxAlt"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-install-steps">
+      <div class="section-head reveal">
+        <p class="section-label">Install notes</p>
+        <h2>Minimal friction, explicit paths.</h2>
+      </div>
+      <div class="steps-grid">
+        <article class="step-block reveal">
+          <span>Windows</span>
+          <strong>Run the installer and launch Format Foundry from Start.</strong>
+          <p>Use the in-app uninstall flow or Windows Apps &amp; Features when you want to remove it.</p>
+        </article>
+        <article class="step-block reveal">
+          <span>Ubuntu / Debian</span>
+          <strong>Install the `.deb`, then launch with <code>format-foundry</code>.</strong>
+          <p>Use the AppImage only when you need a self-contained portable build.</p>
+        </article>
+        <article class="step-block reveal">
+          <span>Manual assets</span>
+          <strong>The GitHub release page remains the full artifact source of truth.</strong>
+          <p>If you want every shipped file, use the latest release surface instead of the recommended installer buttons.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section section-final reveal">
+      <div class="final-copy">
+        <p class="section-label">Need the full list?</p>
+        <h2>Everything here resolves against the latest release channel.</h2>
+        <p>That includes the Windows installer, Linux `.deb`, AppImage, portable Windows build, and standalone updater.</p>
+      </div>
+      <div class="cta-row">
+        <a class="button button-primary" data-link="releasePage" href="#" target="_blank" rel="noreferrer">Open latest release</a>
+        <a class="button button-secondary" href="index.html">Back to overview</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div>
+      <strong>Format Foundry</strong>
+      <p>Use `.html` pages directly: <code>index.html</code> for the overview and <code>downloads.html</code> for the direct installer surface.</p>
+    </div>
+    <div class="footer-links">
+      <a href="index.html">Overview</a>
+      <a href="downloads.html">Downloads</a>
+      <a data-link="repo" href="#" target="_blank" rel="noreferrer">Repository</a>
+    </div>
+  </footer>
+</body>
+</html>

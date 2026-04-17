@@ -4,6 +4,10 @@ Format Foundry is a cross-platform desktop toolkit for conversion, compression, 
 
 Canonical release target: `1.8.5`
 
+Website:
+- Overview: [index.html](https://pugmaster04.github.io/Universal-File-Conversion/index.html)
+- Downloads: [downloads.html](https://pugmaster04.github.io/Universal-File-Conversion/downloads.html)
+
 ## Install
 
 [![Windows installer](https://img.shields.io/badge/Windows-Download%20Installer-19786B?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Pugmaster04/Universal-File-Conversion/releases/latest/download/FormatFoundry_Setup.exe)

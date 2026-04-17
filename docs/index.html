@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Format Foundry | Cross-platform desktop toolkit</title>
+  <meta name="description" content="Format Foundry is a cross-platform desktop toolkit for conversion, compression, extraction, downloads, archives, storage analysis, and repeatable batch workflows.">
+  <link rel="icon" href="site-assets/format-foundry.ico" sizes="any">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="site.css">
+  <script defer src="site.js"></script>
+</head>
+<body class="page-home">
+  <div class="site-chrome"></div>
+  <header class="topbar">
+    <a class="wordmark" href="index.html" aria-label="Format Foundry home">
+      <span class="wordmark-mark">FF</span>
+      <span class="wordmark-text">Format Foundry</span>
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="index.html" aria-current="page">Overview</a>
+      <a href="downloads.html">Downloads</a>
+      <a data-link="releasePage" href="#" target="_blank" rel="noreferrer">Latest release</a>
+      <a data-link="repo" href="#" target="_blank" rel="noreferrer">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero hero-home">
+      <div class="hero-copy reveal reveal-fast">
+        <p class="eyebrow">Cross-platform desktop toolkit</p>
+        <h1>One desktop workspace for the file jobs that usually get split across six utilities.</h1>
+        <p class="lede">Convert, compress, extract, package, inspect, download, and batch complex format work from one surface without turning the workflow into a scavenger hunt.</p>
+        <div class="cta-row">
+          <a class="button button-primary" href="downloads.html">Open Download Center</a>
+          <a class="button button-secondary" data-link="windowsInstaller" href="#">Windows installer</a>
+          <a class="button button-secondary" data-link="linuxDeb" href="#">Ubuntu / Debian .deb</a>
+        </div>
+        <dl class="hero-meta">
+          <div>
+            <dt>Current build</dt>
+            <dd data-version>1.8.5</dd>
+          </div>
+          <div>
+            <dt>Primary installs</dt>
+            <dd>Windows EXE installer + Ubuntu .deb</dd>
+          </div>
+          <div>
+            <dt>Fallback path</dt>
+            <dd>Portable EXE + Linux AppImage</dd>
+          </div>
+        </dl>
+      </div>
+      <div class="hero-visual reveal">
+        <div class="visual-aurora"></div>
+        <div class="device-stage">
+          <div class="device-caption">Workflow-first desktop surface</div>
+          <div class="device-frame">
+            <img src="site-assets/format-foundry-preview.png" alt="Format Foundry interface preview">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-statement reveal">
+      <div class="section-rule"></div>
+      <div class="statement-grid">
+        <p class="section-label">Positioning</p>
+        <div>
+          <h2>Built for the work between the formats.</h2>
+          <p>Format Foundry covers the handoff points other tools leave behind: mass conversion, archive prep, document routing, metadata-safe packaging, download intake, and repeatable batch processing.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-columns">
+      <div class="section-head reveal">
+        <p class="section-label">What it covers</p>
+        <h2>A desktop toolkit, not a single-purpose converter.</h2>
+      </div>
+      <div class="feature-columns">
+        <article class="feature-strip reveal">
+          <h3>Media and documents</h3>
+          <p>Convert images, audio, video, PDFs, documents, subtitles, and archive-ready outputs with backend-aware routing instead of guesswork.</p>
+        </article>
+        <article class="feature-strip reveal">
+          <h3>Downloads and torrents</h3>
+          <p>Use aria2-backed HTTP, FTP, SFTP, BitTorrent, magnet, and Metalink workflows with queue controls, file-level torrent selection, and visible progress states.</p>
+        </article>
+        <article class="feature-strip reveal">
+          <h3>Operational cleanup</h3>
+          <p>Run duplicate checks, storage analysis, rename flows, checksum verification, and batch presets from the same workspace instead of stitching scripts together by hand.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section section-workflow">
+      <div class="section-head reveal">
+        <p class="section-label">Workflow shape</p>
+        <h2>Everything is organized around the sequence people actually follow.</h2>
+      </div>
+      <ol class="workflow-rail">
+        <li class="reveal"><span>01</span><strong>Bring in files</strong><p>Drag, queue, or point the app at the exact source set you want to work on.</p></li>
+        <li class="reveal"><span>02</span><strong>Pick the path</strong><p>Targeted format filters, backend detection, and output handling narrow the valid next step.</p></li>
+        <li class="reveal"><span>03</span><strong>Run the queue</strong><p>Progress stays readable while jobs are in flight, including torrent pause / resume / stop controls.</p></li>
+        <li class="reveal"><span>04</span><strong>Ship the result</strong><p>Installer builds, Debian packaging, AppImage output, and release assets follow the same version line.</p></li>
+      </ol>
+    </section>
+
+    <section class="section section-platforms">
+      <div class="section-head reveal">
+        <p class="section-label">Install paths</p>
+        <h2>Use the package that matches the machine.</h2>
+      </div>
+      <div class="platform-panels">
+        <article class="platform-panel reveal">
+          <p class="platform-kicker">Windows</p>
+          <h3>Installer-first</h3>
+          <p>Use the setup executable for the normal install path. Portable app and standalone updater are available as direct assets when you need them.</p>
+          <a class="text-link" data-link="windowsInstaller" href="#">Download the installer</a>
+        </article>
+        <article class="platform-panel reveal">
+          <p class="platform-kicker">Ubuntu / Debian</p>
+          <h3>Package-first</h3>
+          <p>Use the `.deb` for a normal system install. AppImage remains available when you need a self-contained portable build.</p>
+          <a class="text-link" data-link="linuxDeb" href="#">Download the .deb</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="section section-final reveal">
+      <div class="final-copy">
+        <p class="section-label">Get the current build</p>
+        <h2>The live download center uses direct release assets, not placeholder links.</h2>
+        <p>Open the download page for direct installers, fallback artifacts, and the live latest-release surface.</p>
+      </div>
+      <div class="cta-row">
+        <a class="button button-primary" href="downloads.html">View downloads</a>
+        <a class="button button-secondary" data-link="releasePage" href="#" target="_blank" rel="noreferrer">Open latest release</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div>
+      <strong>Format Foundry</strong>
+      <p>Cross-platform file operations for conversion, packaging, downloads, and batch workflows.</p>
+    </div>
+    <div class="footer-links">
+      <a href="downloads.html">Downloads</a>
+      <a data-link="releasePage" href="#" target="_blank" rel="noreferrer">Release notes</a>
+      <a data-link="repo" href="#" target="_blank" rel="noreferrer">Repository</a>
+    </div>
+  </footer>
+</body>
+</html>
