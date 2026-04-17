@@ -36,6 +36,7 @@ from tkinter.scrolledtext import ScrolledText
 from support_runtime import (
     BACKEND_KEY_TO_NAME,
     BACKEND_NAME_TO_KEY,
+    DEFAULT_GITHUB_REPO_URL,
     DEFAULT_TRUSTED_UPDATE_HOSTS,
     build_environment_snapshot,
     collect_backend_details,
@@ -83,7 +84,7 @@ except Exception:
 APP_TITLE = "Format Foundry"
 APP_SLUG = "FormatFoundry"
 LEGACY_APP_SLUGS = ("UniversalConversionHubUCH", "UniversalConversionHubHCB", "UniversalFileUtilitySuite")
-APP_VERSION = "1.8.11"
+APP_VERSION = "1.8.12"
 DEFAULT_UPDATE_MANIFEST_URL = ""
 APP_EXE_BASENAME = "FormatFoundry"
 UPDATER_EXE_BASENAME = "FormatFoundry_Updater"
@@ -2292,7 +2293,7 @@ class SuiteApp:
 
         ttk.Label(
             content_body,
-            text='Manifest example: {"latest_version":"1.8.11","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Manifest example: {"latest_version":"1.8.12","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=590,
             justify="left",
@@ -3395,7 +3396,7 @@ class SuiteApp:
         menu.add_command(label="Overview", command=self._toggle_overview_panel)
 
         help_menu = tk.Menu(menu, tearoff=0)
-        help_menu.add_command(label="Check for Updates", command=lambda: self._check_updates_in_background(interactive=True))
+        help_menu.add_command(label="Check for Updates", command=self._open_updater_for_updates)
         help_menu.add_command(label="How-To", command=self._open_how_to_window)
         help_menu.add_command(label="About", command=self._show_about)
         menu.add_cascade(label="Help", menu=help_menu)
@@ -3480,7 +3481,7 @@ class SuiteApp:
             [
                 ("Open Output Folder", self._open_output_folder, "ShellPrimary.TButton"),
                 ("Settings", self._open_settings_dialog, "Shell.TButton"),
-                ("Check Updates", lambda: self._check_updates_in_background(interactive=True), "Shell.TButton"),
+                ("Check Updates", self._open_updater_for_updates, "Shell.TButton"),
             ],
         )
 
@@ -4761,7 +4762,7 @@ class SuiteApp:
         ttk.Entry(general_tab, textvariable=update_url_var).pack(fill="x", pady=(4, 0))
         ttk.Label(
             general_tab,
-            text='Example JSON: {"latest_version":"1.8.11","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Example JSON: {"latest_version":"1.8.12","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=760,
         ).pack(anchor="w", pady=(4, 0))
@@ -5089,6 +5090,83 @@ class SuiteApp:
             return [sys.executable, str(script_candidate)]
         return None
 
+    def _updater_settings_path(self) -> Path:
+        return resolve_settings_dir(self.settings_root, "updater_settings.json") / "updater_settings.json"
+
+    def _load_updater_settings(self) -> dict[str, Any]:
+        defaults: dict[str, Any] = {
+            "require_https_manifest": True,
+            "require_https_download": True,
+            "require_sha256_verification": True,
+            "confirm_external_links": True,
+            "require_trusted_update_hosts": True,
+            "trusted_update_hosts": ", ".join(DEFAULT_TRUSTED_UPDATE_HOSTS),
+            "source": "",
+            "output_dir": "",
+        }
+        path = self._updater_settings_path()
+        if not path.exists():
+            return defaults
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return defaults
+        if not isinstance(raw, dict):
+            return defaults
+        merged = dict(defaults)
+        merged.update(raw)
+        return merged
+
+    def _sync_updater_settings(self) -> Path:
+        path = self._updater_settings_path()
+        settings = self._load_updater_settings()
+        explicit_source = str(self.settings.get("update_manifest_url", "")).strip()
+        current_source = str(settings.get("source", "")).strip()
+        settings.update(
+            {
+                "require_https_manifest": bool(self.settings.get("security_require_https_for_update_manifest", True)),
+                "require_https_download": bool(self.settings.get("security_require_https_for_web_links", True)),
+                "confirm_external_links": bool(self.settings.get("security_confirm_external_links", True)),
+                "require_trusted_update_hosts": bool(self.settings.get("security_enforce_trusted_update_hosts", True)),
+                "trusted_update_hosts": str(self.settings.get("security_trusted_update_hosts", "")).strip() or ", ".join(DEFAULT_TRUSTED_UPDATE_HOSTS),
+                "source": explicit_source or current_source or DEFAULT_GITHUB_REPO_URL,
+            }
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+        return path
+
+    def _launch_updater(self, wait: bool = False, show_errors: bool = True) -> bool:
+        command = self._resolve_updater_launch_command()
+        if not command:
+            if show_errors:
+                messagebox.showwarning(
+                    APP_TITLE,
+                    "Updater was not found in this installation.\n\nContinuing with normal app startup.",
+                )
+            return False
+        try:
+            self._sync_updater_settings()
+            popen_kwargs: dict[str, Any] = {"cwd": str(self.runtime_dir)}
+            popen_kwargs.update(hidden_console_process_kwargs())
+            process = subprocess.Popen(command, **popen_kwargs)
+            if wait:
+                process.wait()
+            return True
+        except Exception as exc:
+            self.log(f"Failed to open updater: {exc}")
+            if show_errors:
+                messagebox.showerror(
+                    APP_TITLE,
+                    f"Failed to open updater:\n{exc}\n\nContinuing with normal app startup.",
+                )
+            return False
+
+    def _open_updater_for_updates(self) -> None:
+        if self._launch_updater(wait=False, show_errors=False):
+            return
+        self._check_updates_in_background(interactive=True)
+
     def _show_startup_choice_popup(self, latest_version: str = "") -> str:
         # Keep root hidden during startup-choice flow so only one window is visible.
         try:
@@ -5196,21 +5274,8 @@ class SuiteApp:
         if choice != "update":
             return
 
-        command = self._resolve_updater_launch_command()
-        if not command:
-            messagebox.showwarning(
-                APP_TITLE,
-                "Updater was not found in this installation.\n\nContinuing with normal app startup.",
-            )
+        if not self._launch_updater(wait=True, show_errors=True):
             return
-        try:
-            process = subprocess.Popen(command, cwd=str(self.runtime_dir))
-            process.wait()
-        except Exception as exc:
-            messagebox.showerror(
-                APP_TITLE,
-                f"Failed to open updater:\n{exc}\n\nContinuing with normal app startup.",
-            )
 
     def _show_startup_logo_animation(self, show_main_when_done: bool = True, modal: bool = False) -> None:
         if self.reduced_motion_enabled():
@@ -11374,4 +11439,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 

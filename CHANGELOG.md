@@ -9,9 +9,11 @@ This changelog includes:
 
 ## [Unreleased]
 
-## [1.8.11] - 2026-04-17
+## [1.8.12] - 2026-04-17
 
 ### Fixed
+- The app-level `Check Updates` actions now launch the same updater flow used by `FormatFoundry_Updater`, instead of using a separate in-app manifest check path with different behavior.
+- The app now syncs shared update security settings into `updater_settings.json` before launching the updater, so the in-app button and standalone updater use the same source and host policy.
 - The updater now accepts GitHub release asset SHA256 digests published by the GitHub API, so strict checksum verification works without a separate manifest checksum file when checking the canonical release repo.
 - Legacy updater source URLs pointing at `Pugmaster04/Universal-File-Conversion` are now normalized to the canonical `Format-Foundry` repo.
 - Linux startup animation now uses a safer splash-window mode instead of the Windows-only borderless/topmost path that could fail to appear on Linux desktops.
@@ -326,4 +328,5 @@ This changelog includes:
 - Rapid binary iteration cycle in Downloads workspace while core UI/packaging foundations were being established.
 - Artifacts from this stage were later archived and superseded by the canonical `v0.5` source/build process in:
   - `C:\Users\Pugma\Documents\Universal File Utility Suite Output\Universal-File-Conversion`
+
 

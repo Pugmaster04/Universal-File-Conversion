@@ -1,6 +1,6 @@
 {
-  "latest_version": "1.8.11",
-  "download_url": "https://github.com/Pugmaster04/Format-Foundry/releases/download/v1.8.11/FormatFoundry_Setup.exe",
+  "latest_version": "1.8.12",
+  "download_url": "https://github.com/Pugmaster04/Format-Foundry/releases/download/v1.8.12/FormatFoundry_Setup.exe",
   "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "notes": "Release notes here.",
   "compatibility": {
@@ -15,4 +15,5 @@
     }
   }
 }
+
 
