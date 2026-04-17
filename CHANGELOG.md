@@ -7,6 +7,15 @@ This changelog includes:
 - Full `0.5` and `0.6.x` feature/fix/security/build history
 - Rapid revision trails captured in archive snapshots
 
+## [Unreleased]
+
+### Fixed
+- The first-run setup wizard now keeps its action buttons visible on Linux by using a scrollable content area with a fixed footer, plus keyboard shortcuts for continue and close.
+
+### Changed
+- Linux AppStream metadata now includes release notes, a screenshot, age-rating metadata, richer project links, and a proprietary-license reference page so software centers can show more complete app details.
+- Linux packaging now validates AppStream metadata with `appstreamcli` during build and CI.
+
 ## [1.8.6] - 2026-04-16
 
 ### Fixed

@@ -2158,8 +2158,9 @@ class SuiteApp:
     def _run_first_run_setup_wizard(self) -> None:
         wizard = tk.Toplevel(self.root)
         wizard.title("First Run Setup")
-        wizard.geometry("680x460")
-        wizard.resizable(False, False)
+        wizard.geometry(f"{self._scaled(760)}x{self._scaled(620)}")
+        wizard.minsize(self._scaled(720), self._scaled(560))
+        wizard.resizable(True, True)
         if str(self.root.state()) != "withdrawn":
             try:
                 wizard.transient(self.root)
@@ -2182,22 +2183,74 @@ class SuiteApp:
 
         self._apply_window_icon_to(wizard)
         outer = self._build_draggable_dialog_shell(wizard, drag_label="Drag Setup Wizard")
+        content_shell = ttk.Frame(outer, style="App.TFrame")
+        content_shell.pack(fill="both", expand=True)
+        content_canvas = tk.Canvas(
+            content_shell,
+            highlightthickness=0,
+            borderwidth=0,
+            background=wizard.cget("bg"),
+        )
+        content_scrollbar = ttk.Scrollbar(content_shell, orient="vertical", command=content_canvas.yview)
+        content_canvas.configure(yscrollcommand=content_scrollbar.set)
+        content_canvas.pack(side="left", fill="both", expand=True)
+        content_scrollbar.pack(side="right", fill="y")
+        content_body = ttk.Frame(content_canvas, style="App.TFrame")
+        content_window = content_canvas.create_window((0, 0), window=content_body, anchor="nw")
 
-        ttk.Label(outer, text="Welcome to Format Foundry", font=self._font(14, semibold=True)).pack(anchor="w")
+        def _sync_first_run_scrollregion(_event=None) -> None:
+            try:
+                content_canvas.configure(scrollregion=content_canvas.bbox("all"))
+            except Exception:
+                pass
+
+        def _sync_first_run_width(event) -> None:
+            try:
+                content_canvas.itemconfigure(content_window, width=event.width)
+            except Exception:
+                pass
+
+        def _scroll_first_run(delta_units: int) -> None:
+            try:
+                content_canvas.yview_scroll(delta_units, "units")
+            except Exception:
+                pass
+
+        def _on_first_run_mousewheel(event):
+            delta = 0
+            if hasattr(event, "delta") and event.delta:
+                delta = -1 if event.delta > 0 else 1
+            elif getattr(event, "num", None) == 4:
+                delta = -1
+            elif getattr(event, "num", None) == 5:
+                delta = 1
+            if delta:
+                _scroll_first_run(delta)
+                return "break"
+            return None
+
+        content_body.bind("<Configure>", _sync_first_run_scrollregion, add="+")
+        content_canvas.bind("<Configure>", _sync_first_run_width, add="+")
+        for widget in (content_canvas, content_body):
+            widget.bind("<MouseWheel>", _on_first_run_mousewheel, add="+")
+            widget.bind("<Button-4>", _on_first_run_mousewheel, add="+")
+            widget.bind("<Button-5>", _on_first_run_mousewheel, add="+")
+
+        ttk.Label(content_body, text="Welcome to Format Foundry", font=self._font(14, semibold=True)).pack(anchor="w")
         ttk.Label(
-            outer,
+            content_body,
             text="Set your defaults now. You can change them later from File -> Settings.",
             foreground="#475A72",
             wraplength=590,
         ).pack(anchor="w", pady=(4, 12))
 
-        row1 = ttk.Frame(outer)
+        row1 = ttk.Frame(content_body)
         row1.pack(fill="x", pady=(0, 10))
         ttk.Label(row1, text="Default output folder:").pack(side="left")
         ttk.Entry(row1, textvariable=output_var).pack(side="left", fill="x", expand=True, padx=(8, 8))
         ttk.Button(row1, text="Browse", command=lambda: self._browse_into_var(output_var, "Choose default output folder")).pack(side="left")
 
-        row2 = ttk.Frame(outer)
+        row2 = ttk.Frame(content_body)
         row2.pack(fill="x", pady=(0, 10))
         ttk.Checkbutton(row2, text="Enable dark mode", variable=dark_mode_var).pack(anchor="w")
         ttk.Checkbutton(row2, text="Start in fullscreen mode", variable=fullscreen_var).pack(anchor="w")
@@ -2213,13 +2266,13 @@ class SuiteApp:
         ttk.Checkbutton(row2, text="Require HTTPS update manifest URLs", variable=security_https_manifest_var).pack(anchor="w")
         ttk.Button(row2, text="Review Missing Backends Now", command=self._open_backend_install_assistant).pack(anchor="w", pady=(6, 0))
 
-        row3 = ttk.Frame(outer)
+        row3 = ttk.Frame(content_body)
         row3.pack(fill="x", pady=(0, 10))
         ttk.Label(row3, text="Update manifest URL (optional):").pack(anchor="w")
         ttk.Entry(row3, textvariable=update_url_var).pack(fill="x", pady=(4, 0))
 
         ttk.Label(
-            outer,
+            content_body,
             text='Manifest example: {"latest_version":"1.8.6","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=590,
@@ -2227,7 +2280,7 @@ class SuiteApp:
         ).pack(anchor="w", pady=(2, 12))
 
         buttons = ttk.Frame(outer)
-        buttons.pack(fill="x", side="bottom")
+        buttons.pack(fill="x", side="bottom", pady=(10, 0))
 
         def finish() -> None:
             self.settings["output_folder"] = output_var.get().strip() or str(self.default_output_root)
@@ -2251,12 +2304,18 @@ class SuiteApp:
             finished["done"] = True
             wizard.destroy()
 
+        ttk.Label(buttons, text="Scroll for more options if needed.", foreground="#57687F").pack(side="left")
         ttk.Button(buttons, text="Use Defaults", command=finish).pack(side="right")
         ttk.Button(buttons, text="Save and Continue", command=finish).pack(side="right", padx=(0, 8))
 
         wizard.protocol("WM_DELETE_WINDOW", finish)
+        wizard.bind("<Return>", lambda _event: finish(), add="+")
+        wizard.bind("<KP_Enter>", lambda _event: finish(), add="+")
+        wizard.bind("<Escape>", lambda _event: finish(), add="+")
         self._center_window_on_screen(wizard)
         try:
+            wizard.update_idletasks()
+            _sync_first_run_scrollregion()
             wizard.deiconify()
             wizard.lift()
             wizard.focus_force()

@@ -3,17 +3,25 @@
   <id>io.github.Pugmaster04.FormatFoundry.desktop</id>
   <name>Format Foundry</name>
   <summary>Cross-platform file conversion and workflow workspace</summary>
-  <metadata_license>MIT</metadata_license>
-  <project_license>LicenseRef-Proprietary</project_license>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary=https://pugmaster04.github.io/Universal-File-Conversion/license.html</project_license>
   <developer id="io.github.Pugmaster04">
     <name>Pugmaster04</name>
   </developer>
-  <url type="homepage">https://github.com/Pugmaster04/Universal-File-Conversion</url>
+  <url type="homepage">https://pugmaster04.github.io/Universal-File-Conversion/index.html</url>
+  <url type="bugtracker">https://github.com/Pugmaster04/Universal-File-Conversion/issues</url>
+  <url type="contribute">https://github.com/Pugmaster04/Universal-File-Conversion</url>
+  <url type="help">https://github.com/Pugmaster04/Universal-File-Conversion/blob/main/docs/USER_GUIDE.md</url>
+  <url type="vcs-browser">https://github.com/Pugmaster04/Universal-File-Conversion</url>
   <description>
     <p>
       Format Foundry provides conversion, extraction, metadata editing,
       archive handling, media workflows, aria2 downloads, and storage-analysis tools
       in a single desktop application.
+    </p>
+    <p>
+      It is designed for desktop batch workflows where converting, packaging,
+      extracting, downloading, and reviewing outputs need to happen in one place.
     </p>
   </description>
   <launchable type="desktop-id">io.github.Pugmaster04.FormatFoundry.desktop</launchable>
@@ -21,6 +29,30 @@
     <binary>format-foundry</binary>
     <binary>format-foundry-updater</binary>
   </provides>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://pugmaster04.github.io/Universal-File-Conversion/site-assets/format-foundry-preview.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.8.6" date="2026-04-16">
+      <description>
+        <ul>
+          <li>Fixed Linux packaged startup visibility so the app no longer risks starting without a visible window.</li>
+          <li>Improved coordinated Windows and Linux release delivery.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.8.5" date="2026-04-16">
+      <description>
+        <ul>
+          <li>Added Debian and AppImage Linux distribution support.</li>
+          <li>Expanded aria2 downloads, torrent workflows, and cross-platform UI improvements.</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
   <categories>
     <category>Utility</category>
     <category>Graphics</category>

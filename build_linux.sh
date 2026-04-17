@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 SELF_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 BOOTSTRAP_VENV_DIR="${ROOT}/.venv"
-UBUNTU_PREREQ_CMD="sudo apt update && sudo apt install -y python3 python3-venv python3-tk tk-dev dpkg-dev curl"
+UBUNTU_PREREQ_CMD="sudo apt update && sudo apt install -y python3 python3-venv python3-tk tk-dev dpkg-dev curl appstream"
 
 print_linux_prereq_help() {
   cat >&2 <<EOF
@@ -55,6 +55,7 @@ bootstrap_local_virtualenv() {
   require_command_or_exit python3 "python3"
   require_command_or_exit curl "curl"
   require_command_or_exit dpkg-deb "dpkg-dev"
+  require_command_or_exit appstreamcli "appstream"
   require_python_module_or_exit python3 venv "python3-venv"
   require_python_module_or_exit python3 tkinter "python3-tk"
 
@@ -84,6 +85,7 @@ fi
 
 require_command_or_exit curl "curl"
 require_command_or_exit dpkg-deb "dpkg-dev"
+require_command_or_exit appstreamcli "appstream"
 require_python_module_or_exit "${PYTHON_BIN}" tkinter "python3-tk"
 
 APP_NAME="Format Foundry"
@@ -269,6 +271,7 @@ Description: ${APP_NAME}
 EOF
 dpkg-deb --build --root-owner-group "$DEB_ROOT" "$DEB_PACKAGE"
 cp -f "$DEB_PACKAGE" "$DEB_LATEST_PACKAGE"
+appstreamcli validate --pedantic "${DEB_ROOT}/usr/share/metainfo/${PACKAGE_NAME}.appdata.xml"
 
 echo "[7/8] Creating AppImage..."
 download_appimagetool
@@ -290,6 +293,7 @@ cp -f "$APPDATA_TEMPLATE" "${APPDIR_ROOT}/usr/share/metainfo/${PACKAGE_NAME}.app
 render_desktop_file "${APP_BINARY_NAME}" "${APPDIR_ROOT}/${DESKTOP_ID}"
 cp -f "${APPDIR_ROOT}/${DESKTOP_ID}" "${APPDIR_ROOT}/usr/share/applications/${DESKTOP_ID}"
 chmod 755 "${APPDIR_ROOT}/AppRun" "${APPDIR_ROOT}/usr/bin/${APP_BINARY_NAME}" "${APPDIR_ROOT}/usr/bin/${UPDATER_BINARY_NAME}"
+appstreamcli validate --pedantic "${APPDIR_ROOT}/usr/share/metainfo/${PACKAGE_NAME}.appdata.xml"
 APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE_TOOL" "$APPDIR_ROOT" "$APPIMAGE_PACKAGE"
 chmod +x "$APPIMAGE_PACKAGE"
 cp -f "$APPIMAGE_PACKAGE" "$APPIMAGE_LATEST_PACKAGE"

@@ -7,6 +7,7 @@ Canonical release target: `1.8.6`
 Website:
 - Overview: [index.html](https://pugmaster04.github.io/Universal-File-Conversion/index.html)
 - Downloads: [downloads.html](https://pugmaster04.github.io/Universal-File-Conversion/downloads.html)
+- License status: [license.html](https://pugmaster04.github.io/Universal-File-Conversion/license.html)
 
 ## Install
 
@@ -42,6 +43,10 @@ Launch:
 ```bash
 format-foundry
 ```
+
+Packaging note:
+- A standalone `.deb` can expose full AppStream metadata such as links, release notes, screenshots, and license classification.
+- GNOME Software trust badges like `Potentially Unsafe` and `No Software Repository Included` are tied to distribution channel trust, not just package metadata. To remove those, distribute through a signed APT repository or a sandboxed channel like Flatpak.
 
 Portable AppImage fallback:
 
