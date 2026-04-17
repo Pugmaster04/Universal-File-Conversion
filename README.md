@@ -89,6 +89,13 @@ The app can run without every backend, but wider format coverage improves when t
 
 Use the in-app `Backends / Links` tab to see what is detected and open the official install sources.
 
+## Support And Security
+
+- `Backends / Links` now shows detected backend versions, the current OS baseline, and the trusted update-host policy.
+- `File -> Export Bug Report...` exports a JSON snapshot with OS details, backend versions, security settings, and recent log lines.
+- Update checks can be restricted to trusted hosts in `Settings -> Security`.
+- Update manifests can now declare compatibility metadata so the app/updater can avoid surfacing releases that are not targeted to the current OS or architecture.
+
 ## Need More Detail?
 
 - Full guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)

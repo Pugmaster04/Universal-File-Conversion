@@ -32,6 +32,17 @@ import tkinter as tk
 from tkinter import END, SINGLE, BooleanVar, IntVar, StringVar, filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
+from support_runtime import (
+    BACKEND_KEY_TO_NAME,
+    BACKEND_NAME_TO_KEY,
+    DEFAULT_TRUSTED_UPDATE_HOSTS,
+    build_environment_snapshot,
+    collect_backend_details,
+    evaluate_manifest_compatibility,
+    parse_trusted_host_patterns,
+    validate_trusted_remote_url,
+)
+
 try:
     from PIL import Image, ImageFilter, ImageOps, UnidentifiedImageError
 except Exception:
@@ -2074,6 +2085,7 @@ class SuiteApp:
         self.root.bind("<Escape>", self._on_escape_exit_fullscreen)
 
         self.backends = BackendRegistry.detect()
+        self.backend_runtime_details: dict[str, dict[str, Any]] = {}
         self.engine = TaskEngine(self)
 
         if not self.settings.get("first_run_done", False):
@@ -2125,6 +2137,8 @@ class SuiteApp:
             "security_require_https_for_web_links": True,
             "security_require_https_for_update_manifest": True,
             "security_allow_local_update_manifests": True,
+            "security_enforce_trusted_update_hosts": True,
+            "security_trusted_update_hosts": ", ".join(DEFAULT_TRUSTED_UPDATE_HOSTS),
             "update_manifest_url": DEFAULT_UPDATE_MANIFEST_URL,
             "last_update_check": "",
         }
@@ -3273,6 +3287,7 @@ class SuiteApp:
         file_menu.add_separator()
         file_menu.add_command(label="Run First-Run Setup Wizard", command=self._rerun_setup_wizard)
         file_menu.add_command(label="Install Missing Backends", command=self._open_backend_install_assistant)
+        file_menu.add_command(label="Export Bug Report...", command=self._export_bug_report)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self._request_close)
         menu.add_cascade(label="File", menu=file_menu)
@@ -3970,6 +3985,11 @@ class SuiteApp:
             return False, "Blocked by security settings: HTTPS is required."
         return True, ""
 
+    def _validate_trusted_update_url_policy(self, url: str) -> tuple[bool, str]:
+        if not bool(self.settings.get("security_enforce_trusted_update_hosts", True)):
+            return True, ""
+        return validate_trusted_remote_url(url, self._trusted_update_hosts())
+
     def _validate_manifest_source_policy(self, source: str) -> tuple[bool, str]:
         value = source.strip()
         if not value:
@@ -3982,6 +4002,9 @@ class SuiteApp:
         if scheme in {"http", "https"}:
             if bool(self.settings.get("security_require_https_for_update_manifest", True)) and scheme != "https":
                 return False, "Blocked by security settings: update manifest URL must use HTTPS."
+            allowed_host, host_reason = self._validate_trusted_update_url_policy(value)
+            if not allowed_host:
+                return False, f"Blocked by security settings: {host_reason}"
             return True, ""
         return False, f"Unsupported manifest source scheme '{scheme}'."
 
@@ -4103,6 +4126,127 @@ class SuiteApp:
 
     def _backend_install_command(self, backend_name: str) -> str:
         return backend_install_command_for_platform(backend_name)
+
+    def _backend_paths_map(self) -> dict[str, str | None]:
+        return {
+            "ffmpeg": self.backends.ffmpeg,
+            "ffprobe": self.backends.ffprobe,
+            "pandoc": self.backends.pandoc,
+            "libreoffice": self.backends.libreoffice,
+            "sevenzip": self.backends.sevenzip,
+            "imagemagick": self.backends.imagemagick,
+            "aria2": self.backends.aria2,
+        }
+
+    def _refresh_backend_runtime_details(self, force_refresh: bool = False) -> dict[str, dict[str, Any]]:
+        if force_refresh or not self.backend_runtime_details:
+            if force_refresh:
+                self.backends = BackendRegistry.detect(force_refresh=True)
+                self._set_backend_summary_status()
+            self.backend_runtime_details = collect_backend_details(
+                self._backend_paths_map(),
+                popen_kwargs=hidden_console_process_kwargs(),
+            )
+        return self.backend_runtime_details
+
+    def _trusted_update_hosts(self) -> tuple[str, ...]:
+        raw = str(self.settings.get("security_trusted_update_hosts", "")).strip()
+        return parse_trusted_host_patterns(raw or DEFAULT_TRUSTED_UPDATE_HOSTS)
+
+    def _activity_log_tail(self, max_lines: int = 200) -> list[str]:
+        log_widget = getattr(self, "log_box", None)
+        if log_widget is None:
+            return []
+        try:
+            lines = log_widget.get("1.0", "end-1c").splitlines()
+        except Exception:
+            return []
+        if max_lines <= 0:
+            return lines
+        return lines[-max_lines:]
+
+    def _support_settings_snapshot(self) -> dict[str, Any]:
+        return {
+            "check_updates_on_startup": bool(self.settings.get("check_updates_on_startup", True)),
+            "prompt_backend_install_on_startup": bool(self.settings.get("prompt_backend_install_on_startup", True)),
+            "security_confirm_external_links": bool(self.settings.get("security_confirm_external_links", True)),
+            "security_require_https_for_web_links": bool(self.settings.get("security_require_https_for_web_links", True)),
+            "security_require_https_for_update_manifest": bool(self.settings.get("security_require_https_for_update_manifest", True)),
+            "security_allow_local_update_manifests": bool(self.settings.get("security_allow_local_update_manifests", True)),
+            "security_enforce_trusted_update_hosts": bool(self.settings.get("security_enforce_trusted_update_hosts", True)),
+            "security_trusted_update_hosts": list(self._trusted_update_hosts()),
+            "update_manifest_url": str(self.settings.get("update_manifest_url", "")).strip(),
+            "last_update_check": str(self.settings.get("last_update_check", "")).strip(),
+        }
+
+    def _build_environment_snapshot(self, include_log_tail: bool = False) -> dict[str, Any]:
+        extra = {
+            "missing_backends": self._missing_backend_names(),
+        }
+        if include_log_tail:
+            extra["activity_log_tail"] = self._activity_log_tail()
+        return build_environment_snapshot(
+            app_title=APP_TITLE,
+            app_version=APP_VERSION,
+            settings_dir=self.appdata_dir,
+            runtime_dir=self.runtime_dir,
+            script_dir=self.script_dir,
+            resource_dir=self.resource_dir,
+            backend_paths=self._backend_paths_map(),
+            settings=self._support_settings_snapshot(),
+            popen_kwargs=hidden_console_process_kwargs(),
+            extra=extra,
+        )
+
+    def _environment_summary_text(self, snapshot: dict[str, Any] | None = None) -> str:
+        snapshot = snapshot or self._build_environment_snapshot(include_log_tail=False)
+        os_details = snapshot.get("os", {})
+        support = snapshot.get("support", {})
+        backend_details = snapshot.get("backends", {})
+        distro_name = str(os_details.get("distribution_name", "")).strip()
+        os_name = distro_name or f"{os_details.get('system', 'Unknown')} {os_details.get('release', '')}".strip()
+        support_status = {
+            "supported": "Supported",
+            "best_effort": "Best effort",
+            "unsupported": "Needs attention",
+        }.get(str(support.get("status", "")).strip().lower(), "Unknown")
+        available = sum(1 for detail in backend_details.values() if bool(detail.get("detected")))
+        total = len(backend_details)
+        messages = [str(item).strip() for item in support.get("messages", []) if str(item).strip()]
+        lines = [
+            f"Platform: {os_name}",
+            f"Architecture: {os_details.get('architecture', 'unknown')}",
+            f"Support tier: {support_status}",
+            f"Detected backends: {available}/{total}",
+            f"Trusted update hosts: {', '.join(self._trusted_update_hosts()) or '(none)'}",
+        ]
+        if messages:
+            lines.append("Compatibility notes:")
+            lines.extend(f"- {message}" for message in messages)
+        return "\n".join(lines)
+
+    def _copy_environment_snapshot(self) -> None:
+        payload = json.dumps(self._build_environment_snapshot(include_log_tail=False), indent=2, ensure_ascii=False)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(payload)
+        self.status_left_var.set("Environment snapshot copied to clipboard.")
+        self.log("Environment snapshot copied to clipboard.")
+
+    def _export_bug_report(self) -> None:
+        snapshot = self._build_environment_snapshot(include_log_tail=True)
+        default_name = f"format-foundry-bug-report-{time.strftime('%Y%m%d-%H%M%S')}.json"
+        path = filedialog.asksaveasfilename(
+            title="Export bug report",
+            defaultextension=".json",
+            initialfile=default_name,
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        target = Path(path)
+        target.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.status_left_var.set(f"Bug report exported: {target.name}")
+        self.log(f"Bug report exported: {target}")
 
     def _missing_backend_names(self) -> list[str]:
         return [name for name, value in self.backends.as_rows() if value == "Not found"]
@@ -4370,6 +4514,10 @@ class SuiteApp:
         security_https_links_var = BooleanVar(value=bool(self.settings.get("security_require_https_for_web_links", True)))
         security_https_manifest_var = BooleanVar(value=bool(self.settings.get("security_require_https_for_update_manifest", True)))
         security_allow_local_manifest_var = BooleanVar(value=bool(self.settings.get("security_allow_local_update_manifests", True)))
+        security_enforce_trusted_hosts_var = BooleanVar(value=bool(self.settings.get("security_enforce_trusted_update_hosts", True)))
+        security_trusted_hosts_var = StringVar(
+            value=str(self.settings.get("security_trusted_update_hosts", ", ".join(DEFAULT_TRUSTED_UPDATE_HOSTS)))
+        )
 
         outer = self._build_draggable_dialog_shell(dialog, drag_label="Drag Settings")
 
@@ -4550,11 +4698,18 @@ class SuiteApp:
             text="Allow local update manifest files for offline/test workflows",
             variable=security_allow_local_manifest_var,
         ).pack(anchor="w", pady=(2, 0))
+        ttk.Checkbutton(
+            security_tab,
+            text="Restrict update manifests and download links to trusted hosts",
+            variable=security_enforce_trusted_hosts_var,
+        ).pack(anchor="w", pady=(2, 0))
+        ttk.Label(security_tab, text="Trusted update hosts (comma-separated):").pack(anchor="w", pady=(10, 0))
+        ttk.Entry(security_tab, textvariable=security_trusted_hosts_var).pack(fill="x", pady=(4, 0))
         ttk.Label(
             security_tab,
             text=(
                 "Recommended for production: keep HTTPS requirements enabled.\n"
-                "Disable local manifests only if you want update checks to require network-hosted manifests."
+                "Restrict update hosts to your own release surface so the updater cannot be redirected to arbitrary domains."
             ),
             foreground="#57687F",
             wraplength=760,
@@ -4585,6 +4740,8 @@ class SuiteApp:
             security_https_links_var.set(bool(defaults["security_require_https_for_web_links"]))
             security_https_manifest_var.set(bool(defaults["security_require_https_for_update_manifest"]))
             security_allow_local_manifest_var.set(bool(defaults["security_allow_local_update_manifests"]))
+            security_enforce_trusted_hosts_var.set(bool(defaults["security_enforce_trusted_update_hosts"]))
+            security_trusted_hosts_var.set(str(defaults["security_trusted_update_hosts"]))
             status_var.set("Recommended defaults restored. Save to apply.")
 
         def save_settings() -> None:
@@ -4646,6 +4803,8 @@ class SuiteApp:
             self.settings["security_require_https_for_web_links"] = bool(security_https_links_var.get())
             self.settings["security_require_https_for_update_manifest"] = bool(security_https_manifest_var.get())
             self.settings["security_allow_local_update_manifests"] = bool(security_allow_local_manifest_var.get())
+            self.settings["security_enforce_trusted_update_hosts"] = bool(security_enforce_trusted_hosts_var.get())
+            self.settings["security_trusted_update_hosts"] = security_trusted_hosts_var.get().strip() or ", ".join(DEFAULT_TRUSTED_UPDATE_HOSTS)
             self.settings["update_manifest_url"] = update_url_var.get().strip()
             self.settings["first_run_done"] = True
 
@@ -4886,8 +5045,14 @@ class SuiteApp:
                 self.log(f"Startup update check skipped: manifest is not an object ({manifest_url})")
                 return
             latest = str(data.get("latest_version") or data.get("version") or "").strip()
+            compatibility = evaluate_manifest_compatibility(self._build_environment_snapshot(include_log_tail=False), data)
         except Exception as exc:
             self.log(f"Startup update check failed: {exc}")
+            return
+
+        if not bool(compatibility.get("allowed", True)):
+            reason = "; ".join(str(item).strip() for item in compatibility.get("messages", []) if str(item).strip())
+            self.log(f"Startup update check found version {latest}, but it is not compatible with this environment. {reason}")
             return
 
         if not latest or not is_version_newer(latest, APP_VERSION):
@@ -5228,6 +5393,7 @@ class SuiteApp:
                 download_url = str(data.get("download_url") or data.get("url") or "").strip()
                 notes = str(data.get("notes") or "").strip()
                 blocked_download_reason = ""
+                compatibility = evaluate_manifest_compatibility(self._build_environment_snapshot(include_log_tail=False), data)
 
                 if download_url:
                     allow_link, link_reason = self._validate_web_url_policy(
@@ -5238,9 +5404,26 @@ class SuiteApp:
                         blocked_download_reason = f"Download URL blocked by security settings: {link_reason}"
                         self.log(blocked_download_reason)
                         download_url = ""
+                    else:
+                        allowed_host, host_reason = self._validate_trusted_update_url_policy(download_url)
+                        if not allowed_host:
+                            blocked_download_reason = f"Download URL blocked by security settings: {host_reason}"
+                            self.log(blocked_download_reason)
+                            download_url = ""
+
+                compatibility_notes = [str(item).strip() for item in compatibility.get("messages", []) if str(item).strip()]
+                if compatibility_notes:
+                    notes = "\n".join(filter(None, [notes, "Compatibility", *compatibility_notes]))
 
                 if latest and is_version_newer(latest, APP_VERSION):
-                    self.call_ui(lambda: self._show_update_available(latest, download_url, notes, blocked_download_reason))
+                    if bool(compatibility.get("allowed", True)):
+                        self.call_ui(lambda: self._show_update_available(latest, download_url, notes, blocked_download_reason))
+                    elif interactive:
+                        self.call_ui(
+                            lambda: self.info(
+                                f"Version {latest} is available, but it is not marked as compatible with this environment.\n\n{notes or 'No compatibility details were provided.'}"
+                            )
+                        )
                 elif interactive:
                     self.info(f"You are up to date. Current version: {APP_VERSION}")
             except urllib.error.URLError as exc:
@@ -5974,6 +6157,8 @@ class BackendLinksTab(ModuleTab):
         self.download_var = StringVar(value="")
         self.install_cmd_var = StringVar(value="")
         self.detected_path_var = StringVar(value="")
+        self.version_var = StringVar(value="")
+        self.environment_summary_var = StringVar(value="")
         self.status_var = StringVar(value="Select a backend to view links.")
         self.inline_help_labels: list[ttk.Label] = []
         self._build()
@@ -6041,13 +6226,15 @@ class BackendLinksTab(ModuleTab):
         split.add(left, weight=2)
         split.add(right, weight=3)
 
-        self.tree = ttk.Treeview(left, columns=("backend", "status", "path"), show="headings")
+        self.tree = ttk.Treeview(left, columns=("backend", "status", "version", "path"), show="headings")
         self.tree.heading("backend", text="Backend")
         self.tree.heading("status", text="Status")
+        self.tree.heading("version", text="Version")
         self.tree.heading("path", text="Detected Path")
         self.tree.column("backend", width=150)
         self.tree.column("status", width=110)
-        self.tree.column("path", width=520)
+        self.tree.column("version", width=140)
+        self.tree.column("path", width=420)
         self.tree.pack(fill="both", expand=True, padx=8, pady=8)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
         self.add_hover_tooltip(
@@ -6085,6 +6272,11 @@ class BackendLinksTab(ModuleTab):
         detected_label.grid(row=4, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
         detected_entry = ttk.Entry(form, textvariable=self.detected_path_var)
         detected_entry.grid(row=4, column=1, sticky="ew", pady=(0, 8))
+
+        version_label = ttk.Label(form, text="Detected Version")
+        version_label.grid(row=5, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
+        version_entry = ttk.Entry(form, textvariable=self.version_var)
+        version_entry.grid(row=5, column=1, sticky="ew", pady=(0, 8))
         form.columnconfigure(1, weight=1)
 
         self.add_hover_tooltip(
@@ -6107,6 +6299,24 @@ class BackendLinksTab(ModuleTab):
             [detected_label, detected_entry],
             lambda: self._backend_field_tooltip("Detected Path", self.detected_path_var, "Installed location of the selected backend."),
         )
+        self.add_hover_tooltip(
+            [version_label, version_entry],
+            lambda: self._backend_field_tooltip("Detected Version", self.version_var, "Version reported by the detected backend executable."),
+        )
+
+        support_box = ttk.Labelframe(outer, text="Environment / Support")
+        support_box.pack(fill="x", pady=(10, 0))
+        support_actions = ttk.Frame(support_box)
+        support_actions.pack(fill="x", padx=8, pady=(8, 4))
+        ttk.Button(support_actions, text="Refresh Support Snapshot", command=self._populate).pack(side="left")
+        ttk.Button(support_actions, text="Copy Environment", command=self.app._copy_environment_snapshot).pack(side="left", padx=(8, 0))
+        ttk.Button(support_actions, text="Export Bug Report", command=self.app._export_bug_report).pack(side="left", padx=(8, 0))
+        ttk.Label(
+            support_box,
+            textvariable=self.environment_summary_var,
+            justify="left",
+            wraplength=1120,
+        ).pack(anchor="w", padx=8, pady=(0, 8))
 
         ttk.Label(outer, textvariable=self.status_var).pack(anchor="w", pady=(8, 0))
         self.refresh_hover_tooltip_preference()
@@ -6130,14 +6340,19 @@ class BackendLinksTab(ModuleTab):
         self.apply_inline_help_visibility(self.inline_help_labels)
 
     def _populate(self) -> None:
-        self.app._refresh_backends(force_refresh=True)
+        runtime_details = self.app._refresh_backend_runtime_details(force_refresh=True)
         rows = self.app.backends.as_rows()
         self.backend_data.clear()
         for item in self.tree.get_children():
             self.tree.delete(item)
         for backend_name, path_value in rows:
             status = "Detected" if path_value != "Not found" else "Missing"
-            self.tree.insert("", "end", values=(backend_name, status, path_value))
+            backend_key = BACKEND_NAME_TO_KEY.get(backend_name, "")
+            detail = runtime_details.get(backend_key, {})
+            version_value = str(detail.get("version", "")).strip()
+            if not version_value and path_value != "Not found":
+                version_value = "Unknown"
+            self.tree.insert("", "end", values=(backend_name, status, version_value, path_value))
             links = BACKEND_LINKS.get(backend_name, {})
             self.backend_data[backend_name] = {
                 "homepage": links.get("homepage", ""),
@@ -6145,6 +6360,7 @@ class BackendLinksTab(ModuleTab):
                 "download": links.get("download", ""),
                 "install_cmd": self.app._backend_install_command(backend_name),
                 "detected_path": path_value if path_value != "Not found" else "",
+                "version": version_value,
             }
         if self.tree.get_children():
             first = self.tree.get_children()[0]
@@ -6152,6 +6368,7 @@ class BackendLinksTab(ModuleTab):
             self.tree.focus(first)
             self._on_select()
         available = sum(1 for _, value in rows if value != "Not found")
+        self.environment_summary_var.set(self.app._environment_summary_text())
         self.status_var.set(f"Detected {available}/{len(rows)} backends.")
 
     def _on_select(self, _event=None) -> None:
@@ -6165,6 +6382,7 @@ class BackendLinksTab(ModuleTab):
         self.download_var.set(data.get("download", ""))
         self.install_cmd_var.set(data.get("install_cmd", ""))
         self.detected_path_var.set(data.get("detected_path", ""))
+        self.version_var.set(data.get("version", ""))
         self.status_var.set(f"Selected backend: {backend_name}")
 
     def _open_url(self, url: str) -> None:
@@ -10934,19 +11152,25 @@ def _run_cli_mode() -> int | None:
         settings_root = platform_settings_root()
         appdata_dir = resolve_settings_dir(settings_root, "settings.json")
         backends = BackendRegistry.detect()
-        detected = {name: bool(path and str(path).strip() != "Not found") for name, path in backends.as_rows()}
-        payload = {
-            "mode": "smoke-test",
-            "app": APP_TITLE,
-            "version": APP_VERSION,
-            "platform": platform.system(),
-            "python": platform.python_version(),
-            "script_dir_exists": script_dir.exists(),
-            "resource_dir_exists": resource_dir.exists(),
-            "runtime_dir_exists": runtime_dir.exists(),
-            "settings_dir": str(appdata_dir),
-            "detected_backends": detected,
-        }
+        payload = build_environment_snapshot(
+            app_title=APP_TITLE,
+            app_version=APP_VERSION,
+            settings_dir=appdata_dir,
+            runtime_dir=runtime_dir,
+            script_dir=script_dir,
+            resource_dir=resource_dir,
+            backend_paths={
+                "ffmpeg": backends.ffmpeg,
+                "ffprobe": backends.ffprobe,
+                "pandoc": backends.pandoc,
+                "libreoffice": backends.libreoffice,
+                "sevenzip": backends.sevenzip,
+                "imagemagick": backends.imagemagick,
+                "aria2": backends.aria2,
+            },
+            popen_kwargs=hidden_console_process_kwargs(),
+            extra={"mode": "smoke-test"},
+        )
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     return None

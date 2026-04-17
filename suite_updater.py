@@ -19,6 +19,16 @@ from typing import Any
 import tkinter as tk
 from tkinter import BooleanVar, StringVar, filedialog, messagebox, ttk
 
+from support_runtime import (
+    DEFAULT_GITHUB_REPO,
+    DEFAULT_GITHUB_REPO_URL,
+    DEFAULT_TRUSTED_UPDATE_HOSTS,
+    build_environment_snapshot,
+    evaluate_manifest_compatibility,
+    parse_trusted_host_patterns,
+    validate_trusted_remote_url,
+)
+
 
 APP_TITLE = "Format Foundry Updater"
 CURRENT_VERSION = "1.8.7"
@@ -31,8 +41,6 @@ SINGLE_INSTANCE_MUTEX_NAMES = (
     "Local\\UniversalFileUtilitySuiteUpdater_SingleInstanceMutex",
 )
 SINGLE_INSTANCE_LOCKFILE_NAME = "format_foundry_updater.lock"
-DEFAULT_GITHUB_REPO = "Pugmaster04/Format-Foundry"
-DEFAULT_GITHUB_REPO_URL = f"https://github.com/{DEFAULT_GITHUB_REPO}"
 UPDATER_USER_AGENT = f"FormatFoundry-Updater/{CURRENT_VERSION}"
 DEFAULT_UPDATE_DOWNLOAD_PREFIX = "FormatFoundry_Update"
 LEGACY_WINDOW_TITLES = (
@@ -336,10 +344,14 @@ class UpdaterApp:
         self.latest_var = StringVar(value="Latest version: (not checked)")
         self.download_var = StringVar(value="Download URL: (not checked)")
         self.sha256_var = StringVar(value="SHA256: (not provided)")
+        self.environment_var = StringVar(value="")
+        self.compatibility_var = StringVar(value="Compatibility: not checked")
         self.require_https_manifest_var = BooleanVar(value=bool(self.settings.get("require_https_manifest", True)))
         self.require_https_download_var = BooleanVar(value=bool(self.settings.get("require_https_download", True)))
         self.require_sha256_var = BooleanVar(value=bool(self.settings.get("require_sha256_verification", True)))
         self.confirm_external_links_var = BooleanVar(value=bool(self.settings.get("confirm_external_links", True)))
+        self.require_trusted_hosts_var = BooleanVar(value=bool(self.settings.get("require_trusted_update_hosts", True)))
+        self.trusted_hosts_var = StringVar(value=str(self.settings.get("trusted_update_hosts", ", ".join(DEFAULT_TRUSTED_UPDATE_HOSTS))))
         self.accept_all_security_var = BooleanVar(
             value=all(
                 [
@@ -347,6 +359,7 @@ class UpdaterApp:
                     bool(self.require_https_download_var.get()),
                     bool(self.require_sha256_var.get()),
                     bool(self.confirm_external_links_var.get()),
+                    bool(self.require_trusted_hosts_var.get()),
                 ]
             )
         )
@@ -358,6 +371,7 @@ class UpdaterApp:
         self.last_latest = ""
         self.last_sha256 = ""
         self.last_download_block_reason = ""
+        self.last_compatibility: dict[str, Any] | None = None
         self.checking = False
         self.downloading = False
         self._window_drag_offset: tuple[int, int] | None = None
@@ -367,6 +381,7 @@ class UpdaterApp:
         self._build_ui()
         self._bind_setting_traces()
         self._save_settings()
+        self._refresh_environment_status()
 
     def _resolve_appdata_dir(self) -> Path:
         return resolve_settings_dir(self.settings_root, "updater_settings.json")
@@ -543,6 +558,8 @@ class UpdaterApp:
             "require_https_download": True,
             "require_sha256_verification": True,
             "confirm_external_links": True,
+            "require_trusted_update_hosts": True,
+            "trusted_update_hosts": ", ".join(DEFAULT_TRUSTED_UPDATE_HOSTS),
             "source": "",
             "output_dir": "",
         }
@@ -567,6 +584,8 @@ class UpdaterApp:
         self.settings["require_https_download"] = bool(self.require_https_download_var.get())
         self.settings["require_sha256_verification"] = bool(self.require_sha256_var.get())
         self.settings["confirm_external_links"] = bool(self.confirm_external_links_var.get())
+        self.settings["require_trusted_update_hosts"] = bool(self.require_trusted_hosts_var.get())
+        self.settings["trusted_update_hosts"] = str(self.trusted_hosts_var.get()).strip() or ", ".join(DEFAULT_TRUSTED_UPDATE_HOSTS)
         self.settings["source"] = str(self.source_var.get()).strip()
         self.settings["output_dir"] = str(self.output_dir_var.get()).strip()
         self.settings_path.write_text(json.dumps(self.settings, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -578,6 +597,7 @@ class UpdaterApp:
                 bool(self.require_https_download_var.get()),
                 bool(self.require_sha256_var.get()),
                 bool(self.confirm_external_links_var.get()),
+                bool(self.require_trusted_hosts_var.get()),
             ]
         )
 
@@ -588,6 +608,7 @@ class UpdaterApp:
             self.require_https_download_var.set(enabled)
             self.require_sha256_var.set(enabled)
             self.confirm_external_links_var.set(enabled)
+            self.require_trusted_hosts_var.set(enabled)
         finally:
             self._suspend_security_traces = False
 
@@ -616,26 +637,33 @@ class UpdaterApp:
 
     def _apply_security_settings_clicked(self) -> None:
         self._save_settings()
+        self._refresh_environment_status(self.last_manifest or {})
         enabled_count = sum(
             [
                 bool(self.require_https_manifest_var.get()),
                 bool(self.require_https_download_var.get()),
                 bool(self.require_sha256_var.get()),
                 bool(self.confirm_external_links_var.get()),
+                bool(self.require_trusted_hosts_var.get()),
             ]
         )
-        self.status_var.set(f"Security settings saved ({enabled_count}/4 enabled).")
+        self.status_var.set(f"Security settings saved ({enabled_count}/5 enabled).")
 
     def _bind_setting_traces(self) -> None:
         self.require_https_manifest_var.trace_add("write", self._on_security_option_changed)
         self.require_https_download_var.trace_add("write", self._on_security_option_changed)
         self.require_sha256_var.trace_add("write", self._on_security_option_changed)
         self.confirm_external_links_var.trace_add("write", self._on_security_option_changed)
+        self.require_trusted_hosts_var.trace_add("write", self._on_security_option_changed)
         self.accept_all_security_var.trace_add("write", self._on_accept_all_changed)
 
     def _default_manifest_source(self) -> str:
         # Default to the project GitHub repo so update checks work without local manifest setup.
         return DEFAULT_GITHUB_REPO_URL
+
+    def _trusted_update_hosts(self) -> tuple[str, ...]:
+        raw = str(self.trusted_hosts_var.get()).strip()
+        return parse_trusted_host_patterns(raw or DEFAULT_TRUSTED_UPDATE_HOSTS)
 
     def _url_scheme(self, value: str) -> str:
         return urllib.parse.urlparse(value.strip()).scheme.lower()
@@ -647,6 +675,58 @@ class UpdaterApp:
         if require_https and scheme != "https":
             return False, "HTTPS is required by current security settings."
         return True, ""
+
+    def _validate_trusted_update_url(self, value: str) -> tuple[bool, str]:
+        if not bool(self.require_trusted_hosts_var.get()):
+            return True, ""
+        return validate_trusted_remote_url(value, self._trusted_update_hosts())
+
+    def _environment_snapshot(self) -> dict[str, Any]:
+        return build_environment_snapshot(
+            app_title=APP_TITLE,
+            app_version=CURRENT_VERSION,
+            settings_dir=self.appdata_dir,
+            runtime_dir=self.runtime_dir,
+            script_dir=self.script_dir,
+            resource_dir=self.resource_dir,
+            backend_paths={},
+            settings={
+                "source": str(self.source_var.get()).strip(),
+                "require_https_manifest": bool(self.require_https_manifest_var.get()),
+                "require_https_download": bool(self.require_https_download_var.get()),
+                "require_sha256_verification": bool(self.require_sha256_var.get()),
+                "confirm_external_links": bool(self.confirm_external_links_var.get()),
+                "require_trusted_update_hosts": bool(self.require_trusted_hosts_var.get()),
+                "trusted_update_hosts": list(self._trusted_update_hosts()),
+            },
+            popen_kwargs=hidden_console_process_kwargs(),
+            extra={"mode": "updater"},
+        )
+
+    def _refresh_environment_status(self, manifest: dict[str, Any] | None = None) -> None:
+        snapshot = self._environment_snapshot()
+        os_details = snapshot.get("os", {})
+        distro_name = str(os_details.get("distribution_name", "")).strip()
+        os_name = distro_name or f"{os_details.get('system', 'Unknown')} {os_details.get('release', '')}".strip()
+        support = snapshot.get("support", {})
+        support_status = {
+            "supported": "Supported baseline",
+            "best_effort": "Best-effort baseline",
+            "unsupported": "Needs attention",
+        }.get(str(support.get("status", "")).strip().lower(), "Unknown baseline")
+        self.environment_var.set(f"Environment: {os_name} | {os_details.get('architecture', 'unknown')} | {support_status}")
+
+        compatibility = evaluate_manifest_compatibility(snapshot, manifest or {})
+        self.last_compatibility = compatibility
+        messages = [str(item).strip() for item in compatibility.get("messages", []) if str(item).strip()]
+        label = {
+            "compatible": "Compatibility: update allowed",
+            "unsupported": "Compatibility: update not targeted to this environment",
+            "unknown": "Compatibility: manifest does not declare environment rules",
+        }.get(str(compatibility.get("status", "")).strip().lower(), "Compatibility: unknown")
+        if messages:
+            label = f"{label} | {messages[0]}"
+        self.compatibility_var.set(label)
 
     def _extract_manifest_sha256(self, manifest: dict[str, Any]) -> str:
         candidates = [
@@ -861,6 +941,9 @@ class UpdaterApp:
         allow, reason = self._validate_web_url(api_url, require_https=bool(self.require_https_manifest_var.get()))
         if not allow:
             raise RuntimeError(f"GitHub API URL blocked by security settings.\n{reason}")
+        allow_host, host_reason = self._validate_trusted_update_url(api_url)
+        if not allow_host:
+            raise RuntimeError(f"GitHub API URL blocked by security settings.\n{host_reason}")
 
         release: dict[str, Any]
         try:
@@ -910,6 +993,9 @@ class UpdaterApp:
                 allow_raw, reason_raw = self._validate_web_url(raw_url, require_https=bool(self.require_https_manifest_var.get()))
                 if not allow_raw:
                     continue
+                allow_raw_host, _raw_host_reason = self._validate_trusted_update_url(raw_url)
+                if not allow_raw_host:
+                    continue
                 raw_manifest = self._fetch_json_url(raw_url, timeout=18)
                 if not isinstance(raw_manifest, dict):
                     continue
@@ -932,6 +1018,9 @@ class UpdaterApp:
         allow_tags, reason_tags = self._validate_web_url(tags_url, require_https=bool(self.require_https_manifest_var.get()))
         if not allow_tags:
             raise RuntimeError(f"GitHub tags URL blocked by security settings.\n{reason_tags}")
+        allow_tags_host, tags_host_reason = self._validate_trusted_update_url(tags_url)
+        if not allow_tags_host:
+            raise RuntimeError(f"GitHub tags URL blocked by security settings.\n{tags_host_reason}")
         tags_data: Any = []
         try:
             tags_data = self._fetch_json_url(tags_url, timeout=18)
@@ -1058,6 +1147,12 @@ class UpdaterApp:
         hash_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
         hash_row.pack(fill="x", pady=(6, 0))
         ttk.Label(hash_row, textvariable=self.sha256_var, style="UpdaterValue.TLabel", wraplength=760, justify="left").pack(side="left", anchor="w")
+        env_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
+        env_row.pack(fill="x", pady=(6, 0))
+        ttk.Label(env_row, textvariable=self.environment_var, style="UpdaterValue.TLabel", wraplength=760, justify="left").pack(side="left", anchor="w")
+        compatibility_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
+        compatibility_row.pack(fill="x", pady=(6, 0))
+        ttk.Label(compatibility_row, textvariable=self.compatibility_var, style="UpdaterValue.TLabel", wraplength=760, justify="left").pack(side="left", anchor="w")
 
         out_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
         out_row.pack(fill="x", pady=(10, 0))
@@ -1094,6 +1189,15 @@ class UpdaterApp:
             text="Confirm before opening external links",
             variable=self.confirm_external_links_var,
         ).pack(anchor="w", padx=8, pady=(0, 4))
+        ttk.Checkbutton(
+            security_frame,
+            text="Restrict manifests and download URLs to trusted hosts",
+            variable=self.require_trusted_hosts_var,
+        ).pack(anchor="w", padx=8)
+        trusted_hosts_row = ttk.Frame(security_frame)
+        trusted_hosts_row.pack(fill="x", padx=8, pady=(4, 4))
+        ttk.Label(trusted_hosts_row, text="Trusted hosts").pack(side="left")
+        ttk.Entry(trusted_hosts_row, textvariable=self.trusted_hosts_var).pack(side="left", fill="x", expand=True, padx=(8, 0))
         security_action_row = ttk.Frame(security_frame)
         security_action_row.pack(fill="x", padx=8, pady=(0, 6))
         ttk.Checkbutton(
@@ -1150,6 +1254,7 @@ class UpdaterApp:
         )
         if raw:
             self.source_var.set(raw)
+            self._refresh_environment_status(self.last_manifest or {})
 
     def _browse_output_dir(self) -> None:
         raw = filedialog.askdirectory(title="Choose download folder")
@@ -1184,6 +1289,9 @@ class UpdaterApp:
             )
             if not allow:
                 raise RuntimeError(f"Manifest URL blocked by security settings.\n{reason}")
+            allow_host, host_reason = self._validate_trusted_update_url(source)
+            if not allow_host:
+                raise RuntimeError(f"Manifest URL blocked by security settings.\n{host_reason}")
             payload = self._fetch_text_url(source, timeout=18)
             return json.loads(payload)
         path = Path(source).expanduser().resolve()
@@ -1218,9 +1326,18 @@ class UpdaterApp:
                     if not allow_dl:
                         blocked_reason = f"Download URL blocked by security settings: {reason}"
                         download_url = ""
+                    else:
+                        allow_host, host_reason = self._validate_trusted_update_url(download_url)
+                        if not allow_host:
+                            blocked_reason = f"Download URL blocked by security settings: {host_reason}"
+                            download_url = ""
 
                 current = self.version_var.get().strip() or CURRENT_VERSION
                 newer = is_version_newer(latest, current)
+                compatibility = evaluate_manifest_compatibility(self._environment_snapshot(), manifest)
+                compatibility_messages = [str(item).strip() for item in compatibility.get("messages", []) if str(item).strip()]
+                if compatibility_messages:
+                    notes = "\n".join(filter(None, [notes, "Compatibility", *compatibility_messages]))
 
                 def apply() -> None:
                     self.last_manifest = manifest
@@ -1229,6 +1346,7 @@ class UpdaterApp:
                     self.last_latest = latest
                     self.last_sha256 = sha256_value
                     self.last_download_block_reason = blocked_reason
+                    self._refresh_environment_status(manifest)
                     self.latest_var.set(f"Latest version: {latest}")
                     self.download_var.set(f"Download URL: {download_url or '(not provided)'}")
                     self.sha256_var.set(f"SHA256: {sha256_value or '(not provided)'}")
@@ -1239,9 +1357,12 @@ class UpdaterApp:
                         combined_notes = f"{combined_notes}\n\n{blocked_reason}"
                     self._set_notes(combined_notes)
                     self.progress.configure(value=100)
-                    if newer:
+                    if newer and bool(compatibility.get("allowed", True)):
                         self.status_var.set(f"Update available: {current} -> {latest}")
                         messagebox.showinfo(APP_TITLE, f"Update available.\n\nCurrent: {current}\nLatest: {latest}")
+                    elif newer:
+                        self.status_var.set(f"Update {latest} is not targeted to this environment.")
+                        messagebox.showwarning(APP_TITLE, f"Update {latest} is available, but it is not marked as compatible with this environment.")
                     else:
                         self.status_var.set(f"Already up to date ({current}).")
                 self.root.after(0, apply)
@@ -1262,6 +1383,10 @@ class UpdaterApp:
         allow, reason = self._validate_web_url(url, require_https=bool(self.require_https_download_var.get()))
         if not allow:
             messagebox.showwarning(APP_TITLE, f"Cannot open download URL.\n\n{reason}\n\nURL: {url}")
+            return
+        allow_host, host_reason = self._validate_trusted_update_url(url)
+        if not allow_host:
+            messagebox.showwarning(APP_TITLE, f"Cannot open download URL.\n\n{host_reason}\n\nURL: {url}")
             return
         if bool(self.confirm_external_links_var.get()):
             go = messagebox.askyesno(APP_TITLE, f"Open this external link?\n\n{url}")
@@ -1294,6 +1419,10 @@ class UpdaterApp:
         allow_url, url_reason = self._validate_web_url(url, require_https=bool(self.require_https_download_var.get()))
         if not allow_url:
             messagebox.showwarning(APP_TITLE, f"Download URL blocked by security settings.\n\n{url_reason}\n\nURL: {url}")
+            return
+        allow_host, host_reason = self._validate_trusted_update_url(url)
+        if not allow_host:
+            messagebox.showwarning(APP_TITLE, f"Download URL blocked by security settings.\n\n{host_reason}\n\nURL: {url}")
             return
         expected_sha256 = self.last_sha256.strip().lower()
         if bool(self.require_sha256_var.get()) and not expected_sha256:
@@ -1417,17 +1546,17 @@ def _run_cli_mode() -> int | None:
         runtime_dir = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else script_dir
         settings_root = platform_settings_root()
         appdata_dir = resolve_settings_dir(settings_root, "updater_settings.json")
-        payload = {
-            "mode": "smoke-test",
-            "app": APP_TITLE,
-            "version": CURRENT_VERSION,
-            "platform": platform.system(),
-            "python": platform.python_version(),
-            "script_dir_exists": script_dir.exists(),
-            "resource_dir_exists": resource_dir.exists(),
-            "runtime_dir_exists": runtime_dir.exists(),
-            "settings_dir": str(appdata_dir),
-        }
+        payload = build_environment_snapshot(
+            app_title=APP_TITLE,
+            app_version=CURRENT_VERSION,
+            settings_dir=appdata_dir,
+            runtime_dir=runtime_dir,
+            script_dir=script_dir,
+            resource_dir=resource_dir,
+            backend_paths={},
+            popen_kwargs=hidden_console_process_kwargs(),
+            extra={"mode": "smoke-test"},
+        )
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     return None

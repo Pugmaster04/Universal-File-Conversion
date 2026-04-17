@@ -125,6 +125,10 @@ Settings page includes:
   - require HTTPS for backend/update links
   - require HTTPS for update manifest URLs
   - allow/block local manifest files
+  - restrict update manifests/downloads to trusted hosts
+- Support tools:
+  - `Backends / Links` shows detected backend versions and the current environment support tier
+  - `File -> Export Bug Report...` exports a JSON report with OS details, backend versions, settings, and recent logs
 
 ## 4) Quick Start
 
@@ -173,15 +177,27 @@ Updater security options include:
 - HTTPS-only manifest/download URLs
 - optional confirmation before opening download URLs
 - SHA256 verification policy for downloaded update files
+- optional trusted-host allowlist enforcement for manifests and download URLs
 
 Example:
 
 ```json
 {
   "latest_version": "1.8.7",
-  "download_url": "https://example.com/FormatFoundry.exe",
+  "download_url": "https://github.com/Pugmaster04/Format-Foundry/releases/download/v1.8.7/FormatFoundry_Setup.exe",
   "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "notes": "Release notes here"
+  "notes": "Release notes here",
+  "compatibility": {
+    "platforms": ["windows", "linux"],
+    "architectures": ["x86_64", "amd64"],
+    "minimum_os_versions": {
+      "windows": "10",
+      "linux:ubuntu": "24.04"
+    },
+    "minimum_backends": {
+      "ffmpeg": "6.0"
+    }
+  }
 }
 ```
 
