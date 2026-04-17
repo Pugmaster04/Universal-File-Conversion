@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import END, SINGLE, BooleanVar, IntVar, StringVar, filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
@@ -2488,15 +2489,65 @@ class SuiteApp:
             percent = float(self.settings.get("ui_scale_percent", 100))
         except Exception:
             percent = 100.0
-        return max(0.9, min(1.8, percent / 100.0))
+        manual_scale = max(0.9, min(2.4, percent / 100.0))
+        return max(0.9, min(2.4, manual_scale * self._auto_ui_scale_factor()))
+
+    def _auto_ui_scale_factor(self) -> float:
+        try:
+            screen_width = max(1, int(self.root.winfo_screenwidth()))
+            screen_height = max(1, int(self.root.winfo_screenheight()))
+        except Exception:
+            screen_width, screen_height = (1920, 1080)
+        try:
+            dpi = float(self.root.winfo_fpixels("1i"))
+        except Exception:
+            dpi = 96.0
+
+        scale = 1.0
+        if dpi >= 168:
+            scale = max(scale, 1.34)
+        elif dpi >= 144:
+            scale = max(scale, 1.24)
+        elif dpi >= 120:
+            scale = max(scale, 1.12)
+
+        if current_platform_key() == "linux":
+            scale = max(scale, 1.08)
+            if screen_width >= 3200 or screen_height >= 1800:
+                scale = max(scale, 1.30)
+            elif screen_width >= 2560 or screen_height >= 1440:
+                scale = max(scale, 1.18)
+        else:
+            if screen_width >= 2560 or screen_height >= 1440:
+                scale = max(scale, 1.08)
+
+        return min(1.4, scale)
 
     def _scaled(self, value: int, minimum: int = 1) -> int:
         return max(minimum, int(round(float(value) * self._ui_scale_factor())))
 
+    def _preferred_font_family(self) -> str:
+        cached = getattr(self, "_cached_font_family", "")
+        if cached:
+            return cached
+        candidates_by_platform = {
+            "windows": ["Segoe UI", "Arial", "Tahoma"],
+            "linux": ["Ubuntu", "Noto Sans", "DejaVu Sans", "Liberation Sans", "Arial"],
+            "other": ["Arial", "Helvetica", "DejaVu Sans"],
+        }
+        candidates = candidates_by_platform.get(current_platform_key(), candidates_by_platform["other"])
+        try:
+            available = {str(name) for name in tkfont.families(self.root)}
+        except Exception:
+            available = set()
+        family = next((name for name in candidates if not available or name in available), candidates[-1])
+        self._cached_font_family = family
+        return family
+
     def _font(self, size: int, semibold: bool = False, bold: bool = False, underline: bool = False):
-        family = "Segoe UI Semibold" if semibold else "Segoe UI"
+        family = self._preferred_font_family()
         font_parts: list[Any] = [family, self._scaled(size)]
-        if bold:
+        if semibold or bold:
             font_parts.append("bold")
         if underline:
             font_parts.append("underline")
@@ -2504,6 +2555,23 @@ class SuiteApp:
 
     def _tooltip_font(self):
         return self._font(10)
+
+    def _bind_responsive_wrap(self, widget: tk.Misc, padding: int = 32, minimum: int = 220) -> None:
+        def update_wrap(_event=None) -> None:
+            try:
+                width = int(widget.winfo_width())
+            except Exception:
+                return
+            if width <= 1:
+                return
+            target = max(self._scaled(minimum), width - self._scaled(padding))
+            try:
+                widget.configure(wraplength=target)
+            except Exception:
+                return
+
+        widget.bind("<Configure>", update_wrap, add="+")
+        self.root.after(0, update_wrap)
 
     def high_contrast_enabled(self) -> bool:
         return bool(self.settings.get("high_contrast_mode", False))
@@ -3342,13 +3410,15 @@ class SuiteApp:
         intro_col.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
         ttk.Label(intro_col, text="Premium workflow shell", style="HeaderEyebrow.TLabel").pack(anchor="w")
         ttk.Label(intro_col, text=APP_TITLE, style="HeaderTitle.TLabel").pack(anchor="w")
-        ttk.Label(
+        header_subtitle = ttk.Label(
             intro_col,
             text="Cross-platform desktop tooling for conversion, media prep, archives, downloads, analysis, and repeatable batch work without splitting the workflow across separate apps.",
             style="HeaderSubtitle.TLabel",
             wraplength=980,
             justify="left",
-        ).pack(anchor="w", pady=(6, 0))
+        )
+        header_subtitle.pack(anchor="w", pady=(6, 0))
+        self._bind_responsive_wrap(header_subtitle, padding=24, minimum=320)
         self.drag_drop_note_label = ttk.Label(
             intro_col,
             textvariable=self.drag_drop_status_var,
@@ -3357,6 +3427,7 @@ class SuiteApp:
             justify="left",
         )
         self.drag_drop_note_label.pack(anchor="w", pady=(6, 0))
+        self._bind_responsive_wrap(self.drag_drop_note_label, padding=24, minimum=320)
         signal_row = ttk.Frame(intro_col, style="HeaderCard.TFrame")
         signal_row.pack(anchor="w", pady=(10, 0))
         for index, text in enumerate(("Cross-platform", "Batch-ready", "Installer-first", "Accessibility-aware")):
@@ -5269,13 +5340,13 @@ class SuiteApp:
             screen_width = max(1, int(self.root.winfo_screenwidth()))
             screen_height = max(1, int(self.root.winfo_screenheight()))
         except Exception:
-            return (self._scaled(1180), self._scaled(780))
-        target_min_width = self._scaled(1180)
-        target_min_height = self._scaled(780)
-        floor_width = self._scaled(920)
-        floor_height = self._scaled(660)
-        min_width = min(target_min_width, max(floor_width, screen_width - self._scaled(140)))
-        min_height = min(target_min_height, max(floor_height, screen_height - self._scaled(180)))
+            return (self._scaled(960), self._scaled(640))
+        usable_width = max(self._scaled(720), screen_width - self._scaled(40))
+        usable_height = max(self._scaled(520), screen_height - self._scaled(72))
+        target_min_width = min(self._scaled(1160), max(self._scaled(760), int(screen_width * 0.62)))
+        target_min_height = min(self._scaled(760), max(self._scaled(540), int(screen_height * 0.62)))
+        min_width = min(usable_width, target_min_width)
+        min_height = min(usable_height, target_min_height)
         return (min_width, min_height)
 
     def _calculate_display_matched_geometry(self) -> str:
@@ -5284,25 +5355,19 @@ class SuiteApp:
             screen_width = max(1, int(self.root.winfo_screenwidth()))
             screen_height = max(1, int(self.root.winfo_screenheight()))
             min_width, min_height = self._preferred_min_window_size()
-            aspect_ratio = screen_width / max(1, screen_height)
-            target_width = min(screen_width - max(96, int(screen_width * 0.08)), max(min_width, int(screen_width * 0.84)))
-            target_height = min(screen_height - max(108, int(screen_height * 0.10)), max(min_height, int(screen_height * 0.84)))
+            margin_x = max(self._scaled(24), int(screen_width * 0.04))
+            margin_y = max(self._scaled(36), int(screen_height * 0.05))
+            usable_width = max(self._scaled(720), screen_width - (margin_x * 2))
+            usable_height = max(self._scaled(520), screen_height - (margin_y * 2))
 
-            width = max(min_width, target_width)
-            height = int(round(width / aspect_ratio))
-            if height > target_height:
-                height = max(min_height, target_height)
-                width = int(round(height * aspect_ratio))
+            width_target_ratio = 0.88 if current_platform_key() == "linux" else 0.84
+            height_target_ratio = 0.90 if current_platform_key() == "linux" else 0.86
 
-            if width > screen_width:
-                width = screen_width
-                height = int(round(width / aspect_ratio))
-            if height > screen_height:
-                height = screen_height
-                width = int(round(height * aspect_ratio))
+            width = min(usable_width, max(min_width, int(screen_width * width_target_ratio)))
+            height = min(usable_height, max(min_height, int(screen_height * height_target_ratio)))
 
-            width = max(720, min(screen_width, width))
-            height = max(520, min(screen_height, height))
+            width = max(self._scaled(720), min(screen_width, width))
+            height = max(self._scaled(520), min(screen_height, height))
             x = max(0, (screen_width - width) // 2)
             y = max(0, (screen_height - height) // 2)
             return f"{width}x{height}+{x}+{y}"
@@ -5941,8 +6006,37 @@ class ModuleTab(ttk.Frame):
         highlights = [str(item).strip() for item in copy.get("highlights", []) if str(item).strip()]
         workflow = str(copy.get("workflow", "")).strip()
 
-        shell = ttk.Frame(self, style="Surface.TFrame", padding=12)
-        shell.pack(fill="both", expand=True)
+        viewport = ttk.Frame(self, style="Surface.TFrame")
+        viewport.pack(fill="both", expand=True)
+
+        shell_canvas = tk.Canvas(
+            viewport,
+            highlightthickness=0,
+            borderwidth=0,
+            relief="flat",
+            takefocus=0,
+        )
+        shell_canvas.pack(side="left", fill="both", expand=True)
+        shell_scrollbar = ttk.Scrollbar(viewport, orient="vertical", command=shell_canvas.yview)
+        shell_scrollbar.pack(side="right", fill="y")
+        shell_canvas.configure(yscrollcommand=shell_scrollbar.set)
+
+        shell = ttk.Frame(shell_canvas, style="Surface.TFrame", padding=12)
+        shell_window = shell_canvas.create_window((0, 0), window=shell, anchor="nw")
+
+        def sync_shell_viewport(_event=None) -> None:
+            try:
+                canvas_width = max(1, int(shell_canvas.winfo_width()))
+                canvas_height = max(1, int(shell_canvas.winfo_height()))
+                requested_height = max(canvas_height, int(shell.winfo_reqheight()))
+                shell_canvas.itemconfigure(shell_window, width=canvas_width, height=requested_height)
+                shell_canvas.configure(scrollregion=shell_canvas.bbox("all"))
+            except Exception:
+                return
+
+        shell_canvas.bind("<Configure>", sync_shell_viewport, add="+")
+        shell.bind("<Configure>", sync_shell_viewport, add="+")
+        self.after(0, sync_shell_viewport)
 
         hero = ttk.Frame(shell, style="ModuleHero.TFrame", padding=(0, 0))
         hero.pack(fill="x", pady=(0, 10))
@@ -5961,13 +6055,15 @@ class ModuleTab(ttk.Frame):
         ttk.Label(hero_inner, text=self.tab_name, style="ModuleTitle.TLabel").pack(anchor="w", pady=(10, 0))
 
         if summary:
-            ttk.Label(
+            summary_label = ttk.Label(
                 hero_inner,
                 text=summary,
                 style="ModuleSummary.TLabel",
                 wraplength=1180,
                 justify="left",
-            ).pack(anchor="w", pady=(6, 0))
+            )
+            summary_label.pack(anchor="w", pady=(6, 0))
+            self.app._bind_responsive_wrap(summary_label, padding=24, minimum=320)
 
         if highlights:
             chips = ttk.Frame(hero_inner, style="ModuleHeroBody.TFrame")
@@ -5978,20 +6074,24 @@ class ModuleTab(ttk.Frame):
         workflow_panel = ttk.Frame(hero_inner, style="ModuleHeroPanel.TFrame", padding=(12, 10))
         workflow_panel.pack(fill="x", pady=(10, 0))
         ttk.Label(workflow_panel, text="Recommended flow", style="ModuleWorkflow.TLabel").pack(anchor="w")
-        ttk.Label(
+        workflow_label = ttk.Label(
             workflow_panel,
             text=workflow or "Add the source, configure the target behavior, and run the queue from this module.",
             style="ModuleLead.TLabel",
             wraplength=1180,
             justify="left",
-        ).pack(anchor="w", pady=(4, 0))
+        )
+        workflow_label.pack(anchor="w", pady=(4, 0))
+        self.app._bind_responsive_wrap(workflow_label, padding=20, minimum=320)
 
         if workflow:
-            ttk.Label(
+            detail_label = ttk.Label(
                 workflow_panel,
                 text="Designed to stay readable while jobs are in flight.",
                 style="ModuleLead.TLabel",
-            ).pack(anchor="w", pady=(6, 0))
+            )
+            detail_label.pack(anchor="w", pady=(6, 0))
+            self.app._bind_responsive_wrap(detail_label, padding=20, minimum=260)
 
         content = ttk.Frame(shell, style="Surface.TFrame")
         content.pack(fill="both", expand=True)
