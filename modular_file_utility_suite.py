@@ -71,14 +71,11 @@ except Exception:
 APP_TITLE = "Universal Conversion Hub (UCH)"
 APP_SLUG = "UniversalConversionHubUCH"
 LEGACY_APP_SLUGS = ("UniversalConversionHubHCB", "UniversalFileUtilitySuite")
-# Versioning policy:
-# - Major releases use X.0
-# - Secondary feature releases use X.Y
-# - Patch releases use X.Y.Z
-APP_VERSION = "0.7.3"
+APP_VERSION = "1.8.5"
 DEFAULT_UPDATE_MANIFEST_URL = ""
 APP_EXE_BASENAME = "UniversalConversionHub_UCH"
 UPDATER_EXE_BASENAME = "UniversalConversionHub_UCH_Updater"
+DEBIAN_PACKAGE_NAME = "universal-conversion-hub-uch"
 LEGACY_UPDATER_EXE_BASENAMES = ("UniversalConversionHub_HCB_Updater", "UniversalFileUtilitySuite_Updater")
 LEGACY_WINDOW_TITLES = (
     APP_TITLE,
@@ -629,6 +626,16 @@ class TorrentDownloadEntry:
     files: list[TorrentEntryFile] = field(default_factory=list)
     progress: int = 0
     status: str = "Queued"
+
+
+@dataclass
+class UninstallPlan:
+    summary: str
+    action_label: str = ""
+    launch_command: list[str] | None = None
+    manual_command: str = ""
+    install_path: Path | None = None
+    notes: list[str] = field(default_factory=list)
 
 
 def _show_startup_warning(message: str) -> None:
@@ -2022,6 +2029,7 @@ class SuiteApp:
 
         self.status_left_var = StringVar(value="Ready.")
         self.status_right_var = StringVar(value="")
+        self.header_backend_var = StringVar(value="Detecting")
         self.dark_mode_var = BooleanVar(value=bool(self.settings.get("dark_mode", False)))
         self.fullscreen_var = BooleanVar(value=bool(self.settings.get("fullscreen", False)))
         self.borderless_max_var = BooleanVar(value=bool(self.settings.get("borderless_maximized", False)))
@@ -2201,7 +2209,7 @@ class SuiteApp:
 
         ttk.Label(
             outer,
-            text='Manifest example: {"latest_version":"0.7.3","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Manifest example: {"latest_version":"1.8.5","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=590,
             justify="left",
@@ -2412,6 +2420,9 @@ class SuiteApp:
     def reduced_motion_enabled(self) -> bool:
         return bool(self.settings.get("reduce_motion", False))
 
+    def motion_step_ms(self) -> int:
+        return 30 if self.reduced_motion_enabled() else 16
+
     def _resolve_window_bar_color_override(self) -> str | None:
         if os.name != "nt" or Image is None:
             return None
@@ -2486,97 +2497,107 @@ class SuiteApp:
     def _theme_palette(self, dark_mode: bool) -> dict[str, str]:
         if dark_mode:
             palette = {
-                "window_bg": "#0E1418",
-                "surface_bg": "#10191F",
-                "surface_alt_bg": "#0C1318",
-                "card_bg": "#152028",
-                "card_border": "#2B3B44",
-                "title_fg": "#F3F8F6",
-                "subtitle_fg": "#BFD1CC",
-                "meta_fg": "#E2EEEB",
-                "muted_fg": "#89A29C",
-                "status_bg": "#0B1115",
-                "status_fg": "#DDE7E4",
-                "button_bg": "#1A262D",
-                "button_fg": "#E8F0EE",
-                "button_active": "#23343D",
-                "button_press": "#2C404A",
-                "accent_bg": "#177A6B",
-                "accent_fg": "#F5FFFC",
-                "accent_active": "#229181",
-                "accent_press": "#126458",
-                "accent_soft_bg": "#183A38",
-                "input_bg": "#11191E",
-                "input_fg": "#F0F7F4",
-                "input_border": "#35515A",
-                "select_bg": "#1A7E70",
+                "window_bg": "#09111A",
+                "surface_bg": "#0D1722",
+                "surface_alt_bg": "#122030",
+                "card_bg": "#152331",
+                "card_border": "#2C4257",
+                "title_fg": "#F5FAFF",
+                "subtitle_fg": "#B7CADB",
+                "meta_fg": "#E6EFF7",
+                "muted_fg": "#88A1B7",
+                "status_bg": "#0C151F",
+                "status_fg": "#E5EEF6",
+                "button_bg": "#182735",
+                "button_fg": "#EAF4FC",
+                "button_active": "#223649",
+                "button_press": "#294258",
+                "accent_bg": "#1E8792",
+                "accent_fg": "#F5FEFF",
+                "accent_active": "#28A0AD",
+                "accent_press": "#156C75",
+                "accent_soft_bg": "#183945",
+                "input_bg": "#101A24",
+                "input_fg": "#F1F7FC",
+                "input_border": "#3B556D",
+                "select_bg": "#1E8792",
                 "select_fg": "#FFFFFF",
-                "tree_header_bg": "#1C2A31",
-                "tree_header_fg": "#EAF7F3",
-                "progress_bg": "#2A9E8E",
-                "progress_trough": "#0D151A",
-                "notebook_bg": "#0E1418",
-                "tab_bg": "#18252C",
-                "tab_fg": "#D6E6E2",
-                "tab_sel_bg": "#21333B",
+                "tree_header_bg": "#1B2A3A",
+                "tree_header_fg": "#EEF7FF",
+                "progress_bg": "#2A9CAA",
+                "progress_trough": "#0D1722",
+                "notebook_bg": "#09111A",
+                "tab_bg": "#162433",
+                "tab_fg": "#D7E6F3",
+                "tab_sel_bg": "#203446",
                 "tab_sel_fg": "#FFFFFF",
-                "tab_active_bg": "#1D2D35",
+                "tab_active_bg": "#1C2D3E",
                 "tab_active_fg": "#FFFFFF",
-                "log_bg": "#0D1317",
-                "log_fg": "#F0F7F4",
-                "log_border": "#31464E",
-                "backend_detected_fg": "#8FD8C7",
+                "log_bg": "#0C141D",
+                "log_fg": "#F2F8FD",
+                "log_border": "#31485D",
+                "backend_detected_fg": "#7FD9D6",
                 "backend_missing_fg": "#FFBE7D",
-                "window_bar_bg": "#183A38",
-                "window_bar_fg": "#E2EEEB",
-                "window_bar_border": "#12302F",
+                "window_bar_bg": "#15384B",
+                "window_bar_fg": "#E6F0F7",
+                "window_bar_border": "#0F2936",
+                "hero_strip_bg": "#173042",
+                "hero_strip_border": "#244B61",
+                "hero_strip_fg": "#8CD9D4",
+                "hero_panel_bg": "#11202D",
+                "hero_panel_border": "#2B4458",
             }
         else:
             palette = {
-            "window_bg": "#F3F1EC",
-            "surface_bg": "#F7F5F0",
-            "surface_alt_bg": "#EAE6DD",
-            "card_bg": "#FFFEFC",
-            "card_border": "#D9D1C4",
-            "title_fg": "#15242B",
-            "subtitle_fg": "#50636A",
-            "meta_fg": "#20353C",
-            "muted_fg": "#667A81",
-            "status_bg": "#E6E1D8",
-            "status_fg": "#21363D",
-            "button_bg": "#FFFDFC",
-            "button_fg": "#183038",
-            "button_active": "#F0EBE2",
-            "button_press": "#E3DCCD",
-            "accent_bg": "#19786B",
+            "window_bg": "#EEF3F8",
+            "surface_bg": "#F6F9FC",
+            "surface_alt_bg": "#E7EEF5",
+            "card_bg": "#FFFFFF",
+            "card_border": "#D2DEE8",
+            "title_fg": "#102233",
+            "subtitle_fg": "#5A7387",
+            "meta_fg": "#1D3748",
+            "muted_fg": "#6A8193",
+            "status_bg": "#E5EDF4",
+            "status_fg": "#234152",
+            "button_bg": "#FFFFFF",
+            "button_fg": "#173344",
+            "button_active": "#EFF4F8",
+            "button_press": "#E3EBF2",
+            "accent_bg": "#117D8E",
             "accent_fg": "#FFFFFF",
-            "accent_active": "#25887B",
-            "accent_press": "#136257",
-            "accent_soft_bg": "#E3F0EC",
+            "accent_active": "#1690A3",
+            "accent_press": "#0D6472",
+            "accent_soft_bg": "#E0F0F3",
             "input_bg": "#FFFFFF",
-            "input_fg": "#10272F",
-            "input_border": "#BDB3A6",
-            "select_bg": "#177A6B",
+            "input_fg": "#143145",
+            "input_border": "#B9C8D5",
+            "select_bg": "#117D8E",
             "select_fg": "#FFFFFF",
-            "tree_header_bg": "#ECE6DA",
-            "tree_header_fg": "#183038",
-            "progress_bg": "#228377",
-            "progress_trough": "#E7E1D7",
-            "notebook_bg": "#F3F1EC",
-            "tab_bg": "#E4DDD1",
-            "tab_fg": "#183038",
-            "tab_sel_bg": "#FFFEFC",
-            "tab_sel_fg": "#15242B",
-            "tab_active_bg": "#EEE8DE",
-            "tab_active_fg": "#173139",
-            "log_bg": "#FFFEFC",
-            "log_fg": "#162930",
-            "log_border": "#D9D1C4",
-            "backend_detected_fg": "#0D665A",
-            "backend_missing_fg": "#B54708",
-            "window_bar_bg": "#E3F0EC",
-            "window_bar_fg": "#305459",
-            "window_bar_border": "#C4DDD6",
+            "tree_header_bg": "#E6EEF5",
+            "tree_header_fg": "#173344",
+            "progress_bg": "#228D99",
+            "progress_trough": "#E0E8F0",
+            "notebook_bg": "#EEF3F8",
+            "tab_bg": "#DFE7EF",
+            "tab_fg": "#173344",
+            "tab_sel_bg": "#FFFFFF",
+            "tab_sel_fg": "#102233",
+            "tab_active_bg": "#EAF1F7",
+            "tab_active_fg": "#173344",
+            "log_bg": "#FFFFFF",
+            "log_fg": "#163042",
+            "log_border": "#D2DEE8",
+            "backend_detected_fg": "#0F6A75",
+            "backend_missing_fg": "#AF4B0D",
+            "window_bar_bg": "#DCEAF3",
+            "window_bar_fg": "#355567",
+            "window_bar_border": "#BBD1E0",
+            "hero_strip_bg": "#EDF6F7",
+            "hero_strip_border": "#CCE3E7",
+            "hero_strip_fg": "#0C5864",
+            "hero_panel_bg": "#F4F8FB",
+            "hero_panel_border": "#D4E1EA",
         }
         if self.high_contrast_enabled():
             if dark_mode:
@@ -2756,7 +2777,16 @@ class SuiteApp:
         self.style.configure("SurfaceInset.TFrame", background=palette["surface_alt_bg"])
         self.style.configure("Card.TFrame", background=palette["card_bg"])
         self.style.configure("HeaderCard.TFrame", background=palette["card_bg"])
+        self.style.configure(
+            "HeaderMetaPanel.TFrame",
+            background=palette["hero_panel_bg"],
+            borderwidth=1,
+            relief="solid",
+            bordercolor=palette["hero_panel_border"],
+        )
         self.style.configure("ModuleHero.TFrame", background=palette["card_bg"], borderwidth=1, relief="solid", bordercolor=palette["card_border"])
+        self.style.configure("ModuleHeroPanel.TFrame", background=palette["hero_panel_bg"], borderwidth=1, relief="solid", bordercolor=palette["hero_panel_border"])
+        self.style.configure("ModuleHeroAccent.TFrame", background=palette["accent_bg"])
         self.style.configure("DragStrip.TFrame", background=palette["window_bar_bg"], borderwidth=1, relief="solid", bordercolor=palette["window_bar_border"])
         self.style.configure("Card.TLabelframe", background=palette["card_bg"], borderwidth=1, relief="solid", bordercolor=palette["card_border"])
         self.style.configure("Card.TLabelframe.Label", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(10, semibold=True))
@@ -2765,12 +2795,17 @@ class SuiteApp:
         self.style.configure("HeaderTitle.TLabel", background=palette["card_bg"], foreground=palette["title_fg"], font=self._font(18, semibold=True))
         self.style.configure("HeaderSubtitle.TLabel", background=palette["card_bg"], foreground=palette["subtitle_fg"], font=self._font(10))
         self.style.configure("HeaderMeta.TLabel", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(10, semibold=True))
+        self.style.configure("HeaderEyebrow.TLabel", background=palette["hero_strip_bg"], foreground=palette["hero_strip_fg"], font=self._font(9, semibold=True), padding=(self._scaled(9), self._scaled(4)))
+        self.style.configure("HeaderStatValue.TLabel", background=palette["hero_panel_bg"], foreground=palette["title_fg"], font=self._font(14, semibold=True))
+        self.style.configure("HeaderStatLabel.TLabel", background=palette["hero_panel_bg"], foreground=palette["muted_fg"], font=self._font(9))
         self.style.configure("CardBody.TLabel", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(10))
         self.style.configure("CardMuted.TLabel", background=palette["card_bg"], foreground=palette["muted_fg"], font=self._font(9))
         self.style.configure("ModuleTitle.TLabel", background=palette["card_bg"], foreground=palette["title_fg"], font=self._font(16, semibold=True))
         self.style.configure("ModuleSummary.TLabel", background=palette["card_bg"], foreground=palette["meta_fg"], font=self._font(10))
         self.style.configure("ModuleWorkflow.TLabel", background=palette["card_bg"], foreground=palette["subtitle_fg"], font=self._font(9, semibold=True))
-        self.style.configure("ModuleChip.TLabel", background=palette["surface_alt_bg"], foreground=palette["meta_fg"], font=self._font(9, semibold=True), padding=(self._scaled(8), self._scaled(4)))
+        self.style.configure("ModuleEyebrow.TLabel", background=palette["hero_strip_bg"], foreground=palette["hero_strip_fg"], font=self._font(8, semibold=True), padding=(self._scaled(8), self._scaled(4)))
+        self.style.configure("ModuleLead.TLabel", background=palette["hero_panel_bg"], foreground=palette["muted_fg"], font=self._font(9))
+        self.style.configure("ModuleChip.TLabel", background=palette["surface_alt_bg"], foreground=palette["meta_fg"], font=self._font(9, semibold=True), padding=(self._scaled(8), self._scaled(5)))
         self.style.configure("ModuleBadge.TLabel", background=palette["accent_soft_bg"], foreground=palette["accent_bg"] if not dark_mode else palette["accent_fg"], font=self._font(9, semibold=True), padding=(self._scaled(8), self._scaled(4)))
         self.style.configure("DragStrip.TLabel", background=palette["window_bar_bg"], foreground=palette["window_bar_fg"], font=self._font(8, semibold=True))
         self.style.configure("Badge.TLabel", background=palette["accent_soft_bg"], foreground=palette["tab_sel_fg"], font=self._font(9, semibold=True), padding=(self._scaled(8), self._scaled(4)))
@@ -3155,6 +3190,7 @@ class SuiteApp:
         file_menu = tk.Menu(menu, tearoff=0)
         file_menu.add_command(label="Open Output Folder", command=self._open_output_folder)
         file_menu.add_command(label="Open Program Folder", command=lambda: self._open_path(self.runtime_dir))
+        file_menu.add_command(label="Uninstall...", command=self._open_uninstall_dialog)
         file_menu.add_command(label="Settings", command=self._open_settings_dialog)
         file_menu.add_separator()
         file_menu.add_command(label="Run First-Run Setup Wizard", command=self._rerun_setup_wizard)
@@ -3201,7 +3237,7 @@ class SuiteApp:
         self._bind_window_drag_widget(self.window_drag_strip)
         self._bind_window_drag_widget(self.window_drag_label)
 
-        header_card = ttk.Frame(root_frame, style="HeaderCard.TFrame", padding=(14, 10))
+        header_card = ttk.Frame(root_frame, style="HeaderCard.TFrame", padding=(16, 14))
         header_card.pack(fill="x")
         self._header_card = header_card
 
@@ -3210,15 +3246,16 @@ class SuiteApp:
         hero_row.columnconfigure(0, weight=1)
 
         intro_col = ttk.Frame(hero_row, style="HeaderCard.TFrame")
-        intro_col.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        intro_col.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
+        ttk.Label(intro_col, text="Premium workflow shell", style="HeaderEyebrow.TLabel").pack(anchor="w")
         ttk.Label(intro_col, text=APP_TITLE, style="HeaderTitle.TLabel").pack(anchor="w")
         ttk.Label(
             intro_col,
-            text="One desktop workspace for conversion, media prep, archives, downloads, file analysis, and repeatable batch jobs.",
+            text="Cross-platform desktop tooling for conversion, media prep, archives, downloads, analysis, and repeatable batch work without splitting the workflow across separate apps.",
             style="HeaderSubtitle.TLabel",
             wraplength=980,
             justify="left",
-        ).pack(anchor="w", pady=(4, 0))
+        ).pack(anchor="w", pady=(6, 0))
         self.drag_drop_note_label = ttk.Label(
             intro_col,
             textvariable=self.drag_drop_status_var,
@@ -3227,11 +3264,25 @@ class SuiteApp:
             justify="left",
         )
         self.drag_drop_note_label.pack(anchor="w", pady=(6, 0))
+        signal_row = ttk.Frame(intro_col, style="HeaderCard.TFrame")
+        signal_row.pack(anchor="w", pady=(10, 0))
+        for index, text in enumerate(("Cross-platform", "Batch-ready", "Installer-first", "Accessibility-aware")):
+            ttk.Label(signal_row, text=text, style="ModuleChip.TLabel").pack(side="left", padx=(0 if index == 0 else 8, 0))
 
         meta_col = ttk.Frame(hero_row, style="HeaderCard.TFrame")
         meta_col.grid(row=0, column=1, sticky="ne")
-        ttk.Label(meta_col, text=f"v{APP_VERSION}", style="Badge.TLabel").pack(anchor="e")
-        ttk.Label(meta_col, text="Cross-platform workflow shell", style="CardMuted.TLabel").pack(anchor="e", pady=(4, 0))
+        for value, label in (
+            (f"v{APP_VERSION}", "Canonical release"),
+            (platform.system() or "Desktop", "Runtime"),
+            (self.header_backend_var, "Detected backends"),
+        ):
+            panel = ttk.Frame(meta_col, style="HeaderMetaPanel.TFrame", padding=(12, 10))
+            panel.pack(fill="x", pady=(0, 8))
+            if hasattr(value, "get"):
+                ttk.Label(panel, textvariable=value, style="HeaderStatValue.TLabel").pack(anchor="w")
+            else:
+                ttk.Label(panel, text=str(value), style="HeaderStatValue.TLabel").pack(anchor="w")
+            ttk.Label(panel, text=label, style="HeaderStatLabel.TLabel").pack(anchor="w", pady=(3, 0))
 
         quick_shell = ttk.Frame(root_frame, style="App.TFrame")
         quick_shell.pack(fill="x", pady=(8, 0))
@@ -3508,6 +3559,320 @@ class SuiteApp:
         except Exception:
             pass
         self._open_path(target.parent if target.is_file() else target)
+
+    def _format_command_for_display(self, command: list[str]) -> str:
+        if os.name == "nt":
+            return subprocess.list2cmdline(command)
+        try:
+            return shlex.join(command)
+        except Exception:
+            return " ".join(command)
+
+    def _runtime_appimage_path(self) -> Path | None:
+        raw = os.environ.get("APPIMAGE", "").strip()
+        if not raw:
+            return None
+        try:
+            path = Path(raw).expanduser()
+        except Exception:
+            return None
+        return path if path.exists() else None
+
+    def _linux_package_installed(self, package_name: str) -> bool:
+        dpkg_query = shutil.which("dpkg-query")
+        if not dpkg_query:
+            return False
+        try:
+            result = subprocess.run(
+                [dpkg_query, "-W", "-f=${Status}", package_name],
+                capture_output=True,
+                text=True,
+                timeout=6,
+            )
+        except Exception:
+            return False
+        return result.returncode == 0 and "install ok installed" in (result.stdout or "").lower()
+
+    def _resolve_windows_uninstall_command(self) -> list[str] | None:
+        candidates = [
+            self.runtime_dir / "unins000.exe",
+            self.runtime_dir / "Uninstall.exe",
+            self.script_dir / "unins000.exe",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return [str(candidate)]
+        if os.name != "nt":
+            return None
+        try:
+            import winreg
+        except Exception:
+            return None
+
+        runtime_dir = self.runtime_dir.resolve()
+        app_exe = (self.runtime_dir / f"{APP_EXE_BASENAME}.exe").resolve()
+        uninstall_roots = [
+            (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+        ]
+        name_markers = {
+            "universal conversion hub",
+            "universal conversion hub (uch)",
+        }
+        for root, subkey in uninstall_roots:
+            try:
+                key = winreg.OpenKey(root, subkey)
+            except Exception:
+                continue
+            try:
+                index = 0
+                while True:
+                    try:
+                        child_name = winreg.EnumKey(key, index)
+                    except OSError:
+                        break
+                    index += 1
+                    try:
+                        child = winreg.OpenKey(key, child_name)
+                    except Exception:
+                        continue
+                    try:
+                        display_name = str(winreg.QueryValueEx(child, "DisplayName")[0] or "").strip().lower()
+                    except Exception:
+                        display_name = ""
+                    try:
+                        install_location = str(winreg.QueryValueEx(child, "InstallLocation")[0] or "").strip()
+                    except Exception:
+                        install_location = ""
+                    try:
+                        display_icon = str(winreg.QueryValueEx(child, "DisplayIcon")[0] or "").strip()
+                    except Exception:
+                        display_icon = ""
+                    try:
+                        uninstall_string = str(winreg.QueryValueEx(child, "UninstallString")[0] or "").strip()
+                    except Exception:
+                        uninstall_string = ""
+                    if not uninstall_string:
+                        continue
+
+                    matched = any(marker in display_name for marker in name_markers)
+                    if not matched and install_location:
+                        try:
+                            matched = Path(install_location).resolve() == runtime_dir
+                        except Exception:
+                            matched = False
+                    if not matched and display_icon:
+                        try:
+                            icon_path = Path(display_icon.split(",")[0].strip().strip('"')).resolve()
+                            matched = icon_path == app_exe
+                        except Exception:
+                            matched = False
+                    if not matched:
+                        continue
+                    try:
+                        parsed = shlex.split(uninstall_string, posix=False)
+                    except Exception:
+                        parsed = [uninstall_string.strip().strip('"')]
+                    if not parsed:
+                        continue
+                    uninstall_path = Path(parsed[0].strip('"'))
+                    if uninstall_path.exists():
+                        return [str(uninstall_path)] + parsed[1:]
+            finally:
+                try:
+                    key.Close()
+                except Exception:
+                    pass
+        return None
+
+    def _resolve_linux_uninstall_command(self) -> tuple[list[str] | None, str]:
+        apt_cmd = shutil.which("apt")
+        dpkg_cmd = shutil.which("dpkg")
+        pkexec_cmd = shutil.which("pkexec")
+        if pkexec_cmd and apt_cmd:
+            return [pkexec_cmd, apt_cmd, "remove", "-y", DEBIAN_PACKAGE_NAME], f"sudo apt remove {DEBIAN_PACKAGE_NAME}"
+        if pkexec_cmd and dpkg_cmd:
+            return [pkexec_cmd, dpkg_cmd, "-r", DEBIAN_PACKAGE_NAME], f"sudo dpkg -r {DEBIAN_PACKAGE_NAME}"
+        if apt_cmd:
+            return None, f"sudo apt remove {DEBIAN_PACKAGE_NAME}"
+        if dpkg_cmd:
+            return None, f"sudo dpkg -r {DEBIAN_PACKAGE_NAME}"
+        return None, ""
+
+    def _build_uninstall_plan(self) -> UninstallPlan:
+        notes = [
+            f"Install files: {self.runtime_dir}",
+            f"Settings folder: {self.settings_path.parent}",
+            f"Output folder: {self.default_output_root}",
+            "Uninstall removes the app binaries. Settings and output files stay unless you remove them yourself.",
+        ]
+        if os.name == "nt":
+            uninstall_command = self._resolve_windows_uninstall_command()
+            if uninstall_command:
+                return UninstallPlan(
+                    summary="Launch the installed Windows uninstaller, then finish removal from the standard uninstall wizard.",
+                    action_label="Launch Uninstaller",
+                    launch_command=uninstall_command,
+                    install_path=self.runtime_dir,
+                    notes=notes
+                    + [
+                        "You can also uninstall from Start -> Uninstall Universal Conversion Hub (UCH) or from Apps & Features.",
+                    ],
+                )
+            return UninstallPlan(
+                summary="This copy does not look like an installed Windows build. Remove the folder manually if you want to delete it.",
+                install_path=self.runtime_dir,
+                notes=notes
+                + [
+                    "No installed Windows uninstaller was found for this copy.",
+                ],
+            )
+
+        if sys.platform.startswith("linux"):
+            appimage_path = self._runtime_appimage_path()
+            if appimage_path is not None:
+                return UninstallPlan(
+                    summary="This copy is running from an AppImage. Uninstall by deleting the AppImage file.",
+                    manual_command=f"rm -f {shlex.quote(str(appimage_path))}",
+                    install_path=appimage_path.parent,
+                    notes=notes
+                    + [
+                        f"AppImage file: {appimage_path}",
+                        "If you created your own launcher entry, remove that launcher as well.",
+                    ],
+                )
+            if self._linux_package_installed(DEBIAN_PACKAGE_NAME) or str(self.runtime_dir).startswith(f"/opt/{DEBIAN_PACKAGE_NAME}"):
+                launch_command, manual_command = self._resolve_linux_uninstall_command()
+                return UninstallPlan(
+                    summary="Remove the installed Debian package for Universal Conversion Hub.",
+                    action_label="Remove Package" if launch_command else "",
+                    launch_command=launch_command,
+                    manual_command=manual_command,
+                    install_path=Path(f"/opt/{DEBIAN_PACKAGE_NAME}"),
+                    notes=notes
+                    + [
+                        "The system package manager may ask for administrator approval.",
+                    ],
+                )
+            return UninstallPlan(
+                summary="This Linux copy does not look like a Debian package install. Remove the app folder manually if you no longer want it.",
+                install_path=self.runtime_dir,
+                notes=notes,
+            )
+
+        return UninstallPlan(
+            summary="No platform-specific uninstaller is configured for this build. Remove the app folder manually if needed.",
+            install_path=self.runtime_dir,
+            notes=notes,
+        )
+
+    def _copy_uninstall_instructions(self, plan: UninstallPlan) -> None:
+        lines = [
+            f"{APP_TITLE} uninstall",
+            "",
+            plan.summary,
+        ]
+        if plan.launch_command:
+            lines.extend(["", f"In-app action: {plan.action_label}", self._format_command_for_display(plan.launch_command)])
+        if plan.manual_command:
+            lines.extend(["", "Manual command:", plan.manual_command])
+        if plan.notes:
+            lines.extend(["", "Notes:"])
+            lines.extend(f"- {note}" for note in plan.notes)
+        self.root.clipboard_clear()
+        self.root.clipboard_append("\n".join(lines))
+        messagebox.showinfo(APP_TITLE, "Uninstall instructions were copied to the clipboard.")
+
+    def _confirm_uninstall_close(self) -> bool:
+        running = self._active_task_labels()
+        if not running:
+            return True
+        preview = ", ".join(running[:3])
+        remainder = len(running) - 3
+        if remainder > 0:
+            preview = f"{preview}, +{remainder} more"
+        return messagebox.askyesno(
+            APP_TITLE,
+            "Background work is still running.\n\n"
+            f"Active: {preview}\n\n"
+            "Continue into uninstall anyway? Running tasks will be interrupted.",
+        )
+
+    def _launch_uninstall_plan(self, plan: UninstallPlan) -> bool:
+        if not plan.launch_command:
+            return False
+        if not self._confirm_uninstall_close():
+            return False
+        try:
+            popen_kwargs: dict[str, Any] = {"cwd": str(plan.install_path or self.runtime_dir)}
+            if os.name == "nt":
+                popen_kwargs.update(hidden_console_process_kwargs())
+            subprocess.Popen(plan.launch_command, **popen_kwargs)
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, f"Failed to launch uninstall flow:\n{exc}")
+            return False
+        self.root.after(150, self.root.destroy)
+        return True
+
+    def _open_uninstall_dialog(self) -> None:
+        plan = self._build_uninstall_plan()
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Uninstall Universal Conversion Hub")
+        dialog.geometry("760x520")
+        dialog.minsize(700, 460)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self._apply_window_icon_to(dialog)
+
+        outer = self._build_draggable_dialog_shell(dialog, drag_label="Drag Uninstall Window")
+        ttk.Label(outer, text="Uninstall Universal Conversion Hub", font=self._font(14, semibold=True)).pack(anchor="w")
+        ttk.Label(
+            outer,
+            text=plan.summary,
+            foreground="#475A72",
+            wraplength=700,
+            justify="left",
+        ).pack(anchor="w", pady=(6, 10))
+
+        if plan.launch_command:
+            ttk.Label(outer, text=f"Primary action: {plan.action_label}", font=self._font(10, semibold=True)).pack(anchor="w")
+            ttk.Label(
+                outer,
+                text=self._format_command_for_display(plan.launch_command),
+                wraplength=700,
+                justify="left",
+            ).pack(anchor="w", pady=(2, 10))
+
+        if plan.manual_command:
+            ttk.Label(outer, text="Manual command:", font=self._font(10, semibold=True)).pack(anchor="w")
+            ttk.Label(
+                outer,
+                text=plan.manual_command,
+                wraplength=700,
+                justify="left",
+            ).pack(anchor="w", pady=(2, 10))
+
+        ttk.Label(outer, text="What stays behind:", font=self._font(10, semibold=True)).pack(anchor="w")
+        notes_box = ScrolledText(outer, height=10, wrap="word")
+        notes_box.pack(fill="both", expand=True, pady=(6, 10))
+        notes_box.insert("1.0", "\n".join(f"- {note}" for note in plan.notes))
+        notes_box.configure(state="disabled")
+
+        buttons = ttk.Frame(outer, style="App.TFrame")
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Copy Instructions", command=lambda: self._copy_uninstall_instructions(plan)).pack(side="left")
+        ttk.Button(buttons, text="Open Settings Folder", command=lambda: self._open_path(self.settings_path.parent)).pack(side="left", padx=(8, 0))
+        if plan.install_path is not None:
+            target = plan.install_path
+            ttk.Button(buttons, text="Open Install Location", command=lambda p=target: self._open_path(p)).pack(side="left", padx=(8, 0))
+        ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side="right")
+        if plan.launch_command:
+            ttk.Button(
+                buttons,
+                text=plan.action_label,
+                command=lambda: self._launch_uninstall_plan(plan) and dialog.destroy(),
+            ).pack(side="right", padx=(0, 8))
 
     def _url_scheme(self, value: str) -> str:
         return urllib.parse.urlparse(value.strip()).scheme.lower()
@@ -4019,11 +4384,24 @@ class SuiteApp:
         ttk.Button(help_row, text="How-To", style="Shell.TButton", command=self._open_how_to_window).pack(side="left")
         ttk.Button(help_row, text="About", style="Shell.TButton", command=self._show_about).pack(side="left", padx=(6, 0))
 
+        ttk.Label(general_tab, text="Install and removal:").pack(anchor="w", pady=(12, 0))
+        maintenance_row = ttk.Frame(general_tab, style="App.TFrame")
+        maintenance_row.pack(anchor="w", pady=(4, 0))
+        ttk.Button(maintenance_row, text="Open Program Folder", style="Shell.TButton", command=lambda: self._open_path(self.runtime_dir)).pack(side="left")
+        ttk.Button(maintenance_row, text="Open Settings Folder", style="Shell.TButton", command=lambda: self._open_path(self.settings_path.parent)).pack(side="left", padx=(6, 0))
+        ttk.Button(maintenance_row, text="Uninstall App", style="Shell.TButton", command=self._open_uninstall_dialog).pack(side="left", padx=(6, 0))
+        ttk.Label(
+            general_tab,
+            text="Uninstall launches the platform-specific removal flow when available and keeps your settings/output folders unless you remove them separately.",
+            foreground="#57687F",
+            wraplength=760,
+        ).pack(anchor="w", pady=(4, 0))
+
         ttk.Label(general_tab, text="Update manifest URL (optional):").pack(anchor="w", pady=(10, 0))
         ttk.Entry(general_tab, textvariable=update_url_var).pack(fill="x", pady=(4, 0))
         ttk.Label(
             general_tab,
-            text='Example JSON: {"latest_version":"0.7.3","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Example JSON: {"latest_version":"1.8.5","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=760,
         ).pack(anchor="w", pady=(4, 0))
@@ -4465,45 +4843,67 @@ class SuiteApp:
         splash.withdraw()
         splash.overrideredirect(True)
         splash.attributes("-topmost", True)
-        splash.configure(bg="#0E1726")
+        splash.configure(bg="#07111C")
         self._apply_window_icon_to(splash)
 
-        width, height = self._scaled(560), self._scaled(320)
+        width, height = self._scaled(640), self._scaled(360)
         x = (splash.winfo_screenwidth() - width) // 2
         y = (splash.winfo_screenheight() - height) // 2
         splash.geometry(f"{width}x{height}+{x}+{y}")
 
-        container = tk.Frame(splash, bg="#0E1726")
-        container.pack(fill="both", expand=True, padx=self._scaled(24), pady=self._scaled(20))
+        container = tk.Frame(
+            splash,
+            bg="#0E1B28",
+            highlightthickness=1,
+            highlightbackground="#183244",
+            bd=0,
+        )
+        container.pack(fill="both", expand=True, padx=self._scaled(26), pady=self._scaled(24))
 
         s = self._scaled
-        logo = tk.Canvas(container, width=s(140), height=s(120), bg="#0E1726", highlightthickness=0, bd=0)
-        logo.pack(pady=(self._scaled(6), self._scaled(8)))
-        logo.create_rectangle(s(30), s(20), s(90), s(100), fill="#3DA4FF", outline="#70C8FF", width=max(1, s(2)))
-        logo.create_polygon(s(90), s(20), s(110), s(20), s(110), s(40), s(90), s(40), fill="#70C8FF", outline="#70C8FF")
-        line_a = logo.create_line(s(38), s(58), s(106), s(58), fill="#DDF0FF", width=max(2, s(5)), arrow="last", arrowshape=(s(10), s(12), s(5)))
-        line_b = logo.create_line(s(106), s(78), s(38), s(78), fill="#9FD6FF", width=max(2, s(5)), arrow="last", arrowshape=(s(10), s(12), s(5)))
-        orbit = logo.create_oval(s(64), s(14), s(74), s(24), fill="#FDEB7C", outline="")
+        logo = tk.Canvas(container, width=s(240), height=s(150), bg="#0E1B28", highlightthickness=0, bd=0)
+        logo.pack(pady=(self._scaled(10), self._scaled(8)))
+        logo.create_oval(s(42), s(112), s(194), s(140), fill="#08111A", outline="")
+        back_plate = logo.create_rectangle(s(62), s(32), s(154), s(114), fill="#14334A", outline="#2F607E", width=max(1, s(2)))
+        mid_plate = logo.create_rectangle(s(78), s(24), s(170), s(106), fill="#19506C", outline="#5AA7C5", width=max(1, s(2)))
+        front_plate = logo.create_rectangle(s(96), s(16), s(188), s(98), fill="#1F7D8F", outline="#8FE0E0", width=max(1, s(2)))
+        front_fold = logo.create_polygon(s(164), s(16), s(188), s(16), s(188), s(40), s(164), s(40), fill="#AEEEF0", outline="#AEEEF0")
+        beam = logo.create_rectangle(s(104), s(28), s(180), s(40), fill="#D8FBFF", outline="")
+        beam_glow = logo.create_rectangle(s(96), s(58), s(188), s(64), fill="#67CBD0", outline="")
+        orbit_a = logo.create_oval(s(46), s(38), s(60), s(52), fill="#F1C56A", outline="")
+        orbit_b = logo.create_oval(s(190), s(30), s(202), s(42), fill="#89D8E3", outline="")
+        orbit_c = logo.create_oval(s(40), s(82), s(52), s(94), fill="#5AA7C5", outline="")
+        pulse_ring = logo.create_oval(s(82), s(2), s(202), s(122), outline="#29536E", width=max(1, s(2)))
+        data_line = logo.create_line(s(54), s(120), s(184), s(120), fill="#3B6C88", width=max(1, s(3)))
+        data_tip = logo.create_oval(s(176), s(114), s(190), s(128), fill="#E7FAFF", outline="")
 
         tk.Label(
             container,
             text=APP_TITLE,
-            bg="#0E1726",
-            fg="#EAF4FF",
-            font=self._font(15, semibold=True),
+            bg="#0E1B28",
+            fg="#F2F8FD",
+            font=self._font(16, semibold=True),
         ).pack()
         tk.Label(
             container,
-            text="Preparing modules, backends, and workspace...",
-            bg="#0E1726",
-            fg="#A5C3E6",
+            text="Loading the premium cross-platform workspace shell.",
+            bg="#0E1B28",
+            fg="#A9C3D8",
             font=self._font(10),
-        ).pack(pady=(self._scaled(4), self._scaled(12)))
+        ).pack(pady=(self._scaled(6), self._scaled(14)))
 
-        progress = ttk.Progressbar(container, mode="determinate", maximum=100, length=self._scaled(440))
+        progress = ttk.Progressbar(container, mode="determinate", maximum=100, length=self._scaled(500))
         progress.pack(pady=(0, self._scaled(8)))
-        state_label = tk.Label(container, text="Loading UI...", bg="#0E1726", fg="#B9D4F1", font=self._font(9))
+        state_label = tk.Label(container, text="Resolving modules... 0%", bg="#0E1B28", fg="#D3E5F3", font=self._font(9, semibold=True))
         state_label.pack()
+        detail_label = tk.Label(
+            container,
+            text="Theme, backends, task queue, and workspace tabs are being staged.",
+            bg="#0E1B28",
+            fg="#7F9AAF",
+            font=self._font(9),
+        )
+        detail_label.pack(pady=(self._scaled(5), 0))
 
         start = time.perf_counter()
         try:
@@ -4511,8 +4911,15 @@ class SuiteApp:
         except Exception:
             duration = 4.6
         duration = max(1.0, min(20.0, duration))
-        spin_cycles = 1.6
-        pulse_cycles = 1.2
+        orbit_cycles = 1.45
+        pulse_cycles = 1.15
+        loading_phases = [
+            (0.18, "Resolving modules"),
+            (0.42, "Checking runtime shell"),
+            (0.68, "Preparing media + archive backends"),
+            (0.9, "Finalizing workspace"),
+            (1.01, "Opening session"),
+        ]
         focus_loss_enabled = {"value": False}
 
         def on_focus_out(_event=None) -> None:
@@ -4540,17 +4947,33 @@ class SuiteApp:
                 return
             ratio = min((time.perf_counter() - start) / duration, 1.0)
             progress.configure(value=ratio * 100.0)
-            state_label.configure(text=f"Loading UI... {int(ratio * 100):d}%")
-            angle = ratio * math.tau * spin_cycles
-            cx = s(69) + s(28) * math.cos(angle)
-            cy = s(59) + s(28) * math.sin(angle)
-            orbit_radius = max(4, s(5))
-            logo.coords(orbit, cx - orbit_radius, cy - orbit_radius, cx + orbit_radius, cy + orbit_radius)
-            shift = s(4) * math.sin(ratio * math.tau * pulse_cycles)
-            logo.coords(line_a, s(38) + shift, s(58), s(106) + shift, s(58))
-            logo.coords(line_b, s(106) - shift, s(78), s(38) - shift, s(78))
+            phase_text = next(label for threshold, label in loading_phases if ratio <= threshold)
+            state_label.configure(text=f"{phase_text}... {int(ratio * 100):d}%")
+            angle = ratio * math.tau * orbit_cycles
+            wave = math.sin(ratio * math.tau * pulse_cycles)
+            float_offset = s(5) * wave
+            beam_offset = s(48) * math.sin((ratio * math.tau * 0.85) - 0.4)
+            logo.coords(front_plate, s(96), s(16) - float_offset, s(188), s(98) - float_offset)
+            logo.coords(front_fold, s(164), s(16) - float_offset, s(188), s(16) - float_offset, s(188), s(40) - float_offset, s(164), s(40) - float_offset)
+            logo.coords(beam, s(104), s(28) + beam_offset * 0.32, s(180), s(40) + beam_offset * 0.32)
+            logo.coords(beam_glow, s(96), s(58) - beam_offset * 0.18, s(188), s(64) - beam_offset * 0.18)
+            orbit_radius = max(5, s(6))
+            cx = s(142) + s(62) * math.cos(angle)
+            cy = s(58) + s(44) * math.sin(angle)
+            logo.coords(orbit_a, cx - orbit_radius, cy - orbit_radius, cx + orbit_radius, cy + orbit_radius)
+            cx_b = s(142) + s(72) * math.cos(angle + 2.1)
+            cy_b = s(58) + s(34) * math.sin(angle + 2.1)
+            logo.coords(orbit_b, cx_b - orbit_radius, cy_b - orbit_radius, cx_b + orbit_radius, cy_b + orbit_radius)
+            cx_c = s(142) + s(78) * math.cos(angle + 4.2)
+            cy_c = s(58) + s(30) * math.sin(angle + 4.2)
+            logo.coords(orbit_c, cx_c - orbit_radius, cy_c - orbit_radius, cx_c + orbit_radius, cy_c + orbit_radius)
+            ring_pad = s(10) + abs(wave) * s(8)
+            logo.coords(pulse_ring, s(92) - ring_pad, s(12) - ring_pad * 0.55, s(192) + ring_pad, s(112) + ring_pad * 0.55)
+            tip_shift = s(20) * ratio
+            logo.coords(data_line, s(54), s(120), s(184) + tip_shift, s(120))
+            logo.coords(data_tip, s(176) + tip_shift, s(114), s(190) + tip_shift, s(128))
             if ratio < 1.0:
-                splash.after(16, tick)
+                splash.after(self.motion_step_ms(), tick)
                 return
             self._startup_animation_active = False
             splash.destroy()
@@ -4674,6 +5097,7 @@ class SuiteApp:
         available = sum(1 for _, value in self.backends.as_rows() if value != "Not found")
         total = len(self.backends.as_rows())
         self.status_right_var.set(f"Backends {available}/{total}")
+        self.header_backend_var.set(f"{available}/{total}")
         if self.backend_corner_button is not None:
             self.backend_corner_button.configure(text=f"Backends {available}/{total}")
 
@@ -4841,6 +5265,12 @@ class SuiteApp:
     def _on_tab_changed(self, _event=None) -> None:
         current = self._current_workspace_module_name()
         category = self._current_workspace_category_name()
+        current_tab = self.tabs.get(current) if current else None
+        if current_tab is not None and hasattr(current_tab, "animate_module_shell"):
+            try:
+                current_tab.animate_module_shell()
+            except Exception:
+                pass
         if current and category:
             self.status_left_var.set(f"Module: {current} [{category}]")
             return
@@ -5088,6 +5518,8 @@ class ModuleTab(ttk.Frame):
         self.app = app
         self.worker: threading.Thread | None = None
         self.hover_cards: list[HoverCard] = []
+        self._module_hero_accent: ttk.Frame | None = None
+        self._module_hero_after: str | None = None
 
     def log(self, message: str) -> None:
         self.app.log(f"{self.tab_name}: {message}")
@@ -5201,6 +5633,36 @@ class ModuleTab(ttk.Frame):
         if raw:
             variable.set(raw)
 
+    def animate_module_shell(self) -> None:
+        accent = self._module_hero_accent
+        if accent is None or not accent.winfo_exists():
+            return
+        height = self.app._scaled(4)
+        if self._module_hero_after:
+            try:
+                accent.after_cancel(self._module_hero_after)
+            except Exception:
+                pass
+            self._module_hero_after = None
+        if self.app.reduced_motion_enabled():
+            accent.place(relx=0.0, rely=0.0, relwidth=1.0, height=height)
+            return
+
+        accent.place(relx=0.0, rely=0.0, relwidth=0.0, height=height)
+        steps = 10
+
+        def step(index: int = 0) -> None:
+            if not accent.winfo_exists():
+                return
+            ratio = min(1.0, max(0.0, index / steps))
+            accent.place_configure(relwidth=ratio)
+            if index >= steps:
+                self._module_hero_after = None
+                return
+            self._module_hero_after = accent.after(self.app.motion_step_ms(), lambda: step(index + 1))
+
+        step()
+
     def build_module_shell(self) -> ttk.Frame:
         copy = self.MODULE_COPY.get(self.tab_name, {})
         summary = str(copy.get("summary", "")).strip()
@@ -5210,17 +5672,25 @@ class ModuleTab(ttk.Frame):
         shell = ttk.Frame(self, style="Surface.TFrame", padding=12)
         shell.pack(fill="both", expand=True)
 
-        hero = ttk.Frame(shell, style="ModuleHero.TFrame", padding=(14, 12))
+        hero = ttk.Frame(shell, style="ModuleHero.TFrame", padding=(0, 0))
         hero.pack(fill="x", pady=(0, 10))
+        accent = ttk.Frame(hero, style="ModuleHeroAccent.TFrame")
+        accent.place(relx=0.0, rely=0.0, relwidth=1.0, height=self.app._scaled(4))
+        self._module_hero_accent = accent
 
-        title_row = ttk.Frame(hero, style="ModuleHero.TFrame")
+        hero_inner = ttk.Frame(hero, style="ModuleHero.TFrame", padding=(14, 14))
+        hero_inner.pack(fill="x")
+
+        title_row = ttk.Frame(hero_inner, style="ModuleHero.TFrame")
         title_row.pack(fill="x")
-        ttk.Label(title_row, text=self.tab_name, style="ModuleTitle.TLabel").pack(side="left")
-        ttk.Label(title_row, text="Focused view", style="ModuleBadge.TLabel").pack(side="right")
+        ttk.Label(title_row, text="Workflow module", style="ModuleEyebrow.TLabel").pack(side="left")
+        ttk.Label(title_row, text="Active workspace", style="ModuleBadge.TLabel").pack(side="right")
+
+        ttk.Label(hero_inner, text=self.tab_name, style="ModuleTitle.TLabel").pack(anchor="w", pady=(10, 0))
 
         if summary:
             ttk.Label(
-                hero,
+                hero_inner,
                 text=summary,
                 style="ModuleSummary.TLabel",
                 wraplength=1180,
@@ -5228,22 +5698,32 @@ class ModuleTab(ttk.Frame):
             ).pack(anchor="w", pady=(6, 0))
 
         if highlights:
-            chips = ttk.Frame(hero, style="ModuleHero.TFrame")
+            chips = ttk.Frame(hero_inner, style="ModuleHero.TFrame")
             chips.pack(fill="x", pady=(10, 0))
             for index, item in enumerate(highlights):
                 ttk.Label(chips, text=item, style="ModuleChip.TLabel").pack(side="left", padx=(0 if index == 0 else 8, 0))
 
+        workflow_panel = ttk.Frame(hero_inner, style="ModuleHeroPanel.TFrame", padding=(12, 10))
+        workflow_panel.pack(fill="x", pady=(10, 0))
+        ttk.Label(workflow_panel, text="Recommended flow", style="ModuleWorkflow.TLabel").pack(anchor="w")
+        ttk.Label(
+            workflow_panel,
+            text=workflow or "Add the source, configure the target behavior, and run the queue from this module.",
+            style="ModuleLead.TLabel",
+            wraplength=1180,
+            justify="left",
+        ).pack(anchor="w", pady=(4, 0))
+
         if workflow:
             ttk.Label(
-                hero,
-                text=f"Workflow: {workflow}",
-                style="ModuleWorkflow.TLabel",
-                wraplength=1180,
-                justify="left",
-            ).pack(anchor="w", pady=(10, 0))
+                workflow_panel,
+                text="Designed to stay readable while jobs are in flight.",
+                style="ModuleLead.TLabel",
+            ).pack(anchor="w", pady=(6, 0))
 
         content = ttk.Frame(shell, style="Surface.TFrame")
         content.pack(fill="both", expand=True)
+        self.after(80, self.animate_module_shell)
         return content
 
     def handle_external_drop(self, paths: list[Path]) -> bool:

@@ -1,5 +1,5 @@
 ﻿#define MyAppName "Universal Conversion Hub (UCH)"
-#define MyAppVersion "0.7.3"
+#define MyAppVersion "1.8.5"
 #define MyAppPublisher "Universal Conversion Hub (UCH)"
 #define MyAppExeName "UniversalConversionHub_UCH.exe"
 #define MyUpdaterExeName "UniversalConversionHub_UCH_Updater.exe"
@@ -41,6 +41,7 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{autoprograms}\Universal Conversion Hub (UCH)"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autoprograms}\Universal Conversion Hub (UCH) Updater"; Filename: "{app}\{#MyUpdaterExeName}"
+Name: "{autoprograms}\Uninstall Universal Conversion Hub (UCH)"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Universal Conversion Hub (UCH)"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]

@@ -21,11 +21,7 @@ from tkinter import BooleanVar, StringVar, filedialog, messagebox, ttk
 
 
 APP_TITLE = "Universal Conversion Hub (UCH) Updater"
-# Versioning policy:
-# - Major releases use X.0
-# - Secondary feature releases use X.Y
-# - Patch releases use X.Y.Z
-CURRENT_VERSION = "0.7.3"
+CURRENT_VERSION = "1.8.5"
 APP_SLUG = "UniversalConversionHubUCH"
 LEGACY_APP_SLUGS = ("UniversalConversionHubHCB", "UniversalFileUtilitySuite")
 SINGLE_INSTANCE_MUTEX_NAMES = (
@@ -36,7 +32,7 @@ SINGLE_INSTANCE_MUTEX_NAMES = (
 SINGLE_INSTANCE_LOCKFILE_NAME = "universal_conversion_hub_uch_updater.lock"
 DEFAULT_GITHUB_REPO = "Pugmaster04/Universal-File-Conversion"
 DEFAULT_GITHUB_REPO_URL = f"https://github.com/{DEFAULT_GITHUB_REPO}"
-UPDATER_USER_AGENT = "UniversalConversionHubUCH-Updater/1.0"
+UPDATER_USER_AGENT = f"UniversalConversionHubUCH-Updater/{CURRENT_VERSION}"
 DEFAULT_UPDATE_DOWNLOAD_PREFIX = "UniversalConversionHub_UCH_Update"
 LEGACY_WINDOW_TITLES = (
     APP_TITLE,
@@ -363,7 +359,9 @@ class UpdaterApp:
         self.checking = False
         self.downloading = False
         self._window_drag_offset: tuple[int, int] | None = None
+        self.style: ttk.Style | None = None
 
+        self._configure_styles()
         self._build_ui()
         self._bind_setting_traces()
         self._save_settings()
@@ -399,6 +397,104 @@ class UpdaterApp:
                 except Exception:
                     continue
 
+    def _palette(self) -> dict[str, str]:
+        return {
+            "window_bg": "#EEF3F8",
+            "surface_bg": "#F7FAFD",
+            "card_bg": "#FFFFFF",
+            "card_border": "#D4DEE8",
+            "card_alt_bg": "#EAF0F6",
+            "title_fg": "#0E2236",
+            "text_fg": "#1B364B",
+            "muted_fg": "#5D7387",
+            "accent_bg": "#117D8E",
+            "accent_active": "#1490A3",
+            "accent_fg": "#F6FEFF",
+            "soft_bg": "#E2F1F4",
+            "soft_fg": "#0E4F59",
+            "input_bg": "#FFFFFF",
+            "input_fg": "#163247",
+            "input_border": "#B7C6D4",
+            "progress_bg": "#117D8E",
+            "progress_trough": "#DDE7EF",
+            "strip_bg": "#DCEAF3",
+            "strip_fg": "#38566A",
+            "status_bg": "#E8EEF5",
+            "status_fg": "#244257",
+        }
+
+    def _configure_styles(self) -> None:
+        palette = self._palette()
+        self.root.configure(bg=palette["window_bg"])
+        self.style = ttk.Style(self.root)
+        if "clam" in set(self.style.theme_names()):
+            self.style.theme_use("clam")
+
+        self.style.configure(".", background=palette["window_bg"], foreground=palette["text_fg"], font=("Segoe UI", 10))
+        self.style.configure("TFrame", background=palette["window_bg"])
+        self.style.configure("TLabel", background=palette["window_bg"], foreground=palette["text_fg"])
+        self.style.configure(
+            "TButton",
+            background=palette["card_bg"],
+            foreground=palette["text_fg"],
+            borderwidth=1,
+            focusthickness=0,
+            padding=(12, 7),
+        )
+        self.style.map("TButton", background=[("active", palette["card_alt_bg"])])
+        self.style.configure("Updater.TFrame", background=palette["window_bg"])
+        self.style.configure(
+            "UpdaterCard.TFrame",
+            background=palette["card_bg"],
+            borderwidth=1,
+            relief="solid",
+            bordercolor=palette["card_border"],
+        )
+        self.style.configure(
+            "UpdaterHero.TFrame",
+            background=palette["card_bg"],
+            borderwidth=1,
+            relief="solid",
+            bordercolor=palette["card_border"],
+        )
+        self.style.configure("UpdaterStrip.TFrame", background=palette["strip_bg"], borderwidth=1, relief="solid", bordercolor=palette["card_border"])
+        self.style.configure("UpdaterStrip.TLabel", background=palette["strip_bg"], foreground=palette["strip_fg"], font=("Segoe UI Semibold", 8))
+        self.style.configure("UpdaterTitle.TLabel", background=palette["card_bg"], foreground=palette["title_fg"], font=("Segoe UI Semibold", 17))
+        self.style.configure("UpdaterSummary.TLabel", background=palette["card_bg"], foreground=palette["muted_fg"], font=("Segoe UI", 10))
+        self.style.configure("UpdaterMetaValue.TLabel", background=palette["card_bg"], foreground=palette["title_fg"], font=("Segoe UI Semibold", 13))
+        self.style.configure("UpdaterMetaLabel.TLabel", background=palette["card_bg"], foreground=palette["muted_fg"], font=("Segoe UI", 9))
+        self.style.configure("UpdaterSection.TLabel", background=palette["window_bg"], foreground=palette["title_fg"], font=("Segoe UI Semibold", 11))
+        self.style.configure("UpdaterBadge.TLabel", background=palette["soft_bg"], foreground=palette["soft_fg"], font=("Segoe UI Semibold", 9), padding=(8, 4))
+        self.style.configure("UpdaterHint.TLabel", background=palette["window_bg"], foreground=palette["muted_fg"], font=("Segoe UI", 9))
+        self.style.configure("UpdaterValue.TLabel", background=palette["card_bg"], foreground=palette["text_fg"], font=("Segoe UI", 10))
+        self.style.configure("UpdaterPrimary.TButton", background=palette["accent_bg"], foreground=palette["accent_fg"], borderwidth=1, padding=(14, 8))
+        self.style.map("UpdaterPrimary.TButton", background=[("active", palette["accent_active"])], foreground=[("active", palette["accent_fg"])])
+        self.style.configure("UpdaterQuiet.TButton", background=palette["card_bg"], foreground=palette["text_fg"], borderwidth=1, padding=(12, 8))
+        self.style.map("UpdaterQuiet.TButton", background=[("active", palette["card_alt_bg"])])
+        self.style.configure(
+            "TLabelframe",
+            background=palette["card_bg"],
+            foreground=palette["text_fg"],
+            borderwidth=1,
+            relief="solid",
+            bordercolor=palette["card_border"],
+        )
+        self.style.configure("TLabelframe.Label", background=palette["card_bg"], foreground=palette["title_fg"], font=("Segoe UI Semibold", 10))
+        self.style.configure(
+            "TEntry",
+            fieldbackground=palette["input_bg"],
+            foreground=palette["input_fg"],
+            bordercolor=palette["input_border"],
+        )
+        self.style.configure(
+            "Horizontal.TProgressbar",
+            troughcolor=palette["progress_trough"],
+            background=palette["progress_bg"],
+            bordercolor=palette["card_border"],
+            lightcolor=palette["progress_bg"],
+            darkcolor=palette["progress_bg"],
+        )
+
     def _bind_window_drag_widget(self, widget: tk.Misc) -> None:
         try:
             widget.configure(cursor="fleur")
@@ -426,32 +522,18 @@ class UpdaterApp:
     def _end_window_drag(self, _event=None) -> None:
         self._window_drag_offset = None
 
-    def _bind_window_drag_widget(self, widget: tk.Misc) -> None:
-        try:
-            widget.configure(cursor="fleur")
-        except Exception:
-            pass
-
-        widget.bind("<ButtonPress-1>", self._begin_window_drag, add="+")
-        widget.bind("<B1-Motion>", self._perform_window_drag, add="+")
-        widget.bind("<ButtonRelease-1>", self._end_window_drag, add="+")
-
-    def _begin_window_drag(self, event) -> str:
-        self._window_drag_offset = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
-        return "break"
-
-    def _perform_window_drag(self, event) -> str | None:
-        if not self._window_drag_offset:
-            return None
-        offset_x, offset_y = self._window_drag_offset
-        try:
-            self.root.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
-        except Exception:
-            return None
-        return "break"
-
-    def _end_window_drag(self, _event=None) -> None:
-        self._window_drag_offset = None
+    def _download_dialog_profile(self, url: str) -> tuple[str, str, list[tuple[str, str]]]:
+        lower = url.strip().lower()
+        asset_name = Path(urllib.parse.urlparse(url).path).name
+        if lower.endswith(".deb") or asset_name.lower().endswith(".deb"):
+            return "Save update package as", ".deb", [("Debian package", "*.deb"), ("All files", "*.*")]
+        if lower.endswith(".appimage") or asset_name.lower().endswith(".appimage"):
+            return "Save update package as", ".AppImage", [("AppImage", "*.AppImage"), ("All files", "*.*")]
+        if lower.endswith(".tar.gz") or asset_name.lower().endswith(".tar.gz"):
+            return "Save update package as", ".tar.gz", [("Tar archive", "*.tar.gz"), ("All files", "*.*")]
+        if lower.endswith(".zip") or asset_name.lower().endswith(".zip"):
+            return "Save update package as", ".zip", [("Zip archive", "*.zip"), ("All files", "*.*")]
+        return "Save update package as", ".exe", [("Installer", "*.exe"), ("All files", "*.*")]
 
     def _default_settings(self) -> dict[str, Any]:
         return {
@@ -901,62 +983,95 @@ class UpdaterApp:
         return self._read_manifest(source)
 
     def _build_ui(self) -> None:
-        outer = ttk.Frame(self.root, padding=12)
+        outer = ttk.Frame(self.root, style="Updater.TFrame", padding=14)
         outer.pack(fill="both", expand=True)
 
-        drag_strip = ttk.Frame(outer, height=18)
+        drag_strip = ttk.Frame(outer, style="UpdaterStrip.TFrame", height=18)
         drag_strip.pack(fill="x", pady=(0, 8))
         drag_strip.pack_propagate(False)
-        drag_label = ttk.Label(drag_strip, text="Drag Window", anchor="center")
+        drag_label = ttk.Label(drag_strip, text="Drag Window", style="UpdaterStrip.TLabel", anchor="center")
         drag_label.pack(fill="both", expand=True)
         self._bind_window_drag_widget(drag_strip)
         self._bind_window_drag_widget(drag_label)
 
-        ttk.Label(outer, text=APP_TITLE, font=("Segoe UI Semibold", 14)).pack(anchor="w")
+        hero = ttk.Frame(outer, style="UpdaterHero.TFrame", padding=(16, 14))
+        hero.pack(fill="x")
+        hero.columnconfigure(0, weight=1)
+
+        intro = ttk.Frame(hero, style="UpdaterHero.TFrame")
+        intro.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
+        ttk.Label(intro, text="Release Control", style="UpdaterBadge.TLabel").pack(anchor="w")
+        ttk.Label(intro, text=APP_TITLE, style="UpdaterTitle.TLabel").pack(anchor="w", pady=(10, 0))
         ttk.Label(
-            outer,
+            intro,
             text=(
-                "Checks updates from a manifest URL/file or a GitHub repo URL "
-                "(for example: https://github.com/owner/repo)."
+                "Checks the canonical release surface, pulls metadata from a manifest or GitHub repo, "
+                "and downloads the correct installer package for the current platform."
             ),
-            foreground="#4D5F76",
-            wraplength=710,
-        ).pack(anchor="w", pady=(2, 10))
+            style="UpdaterSummary.TLabel",
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", pady=(6, 0))
 
-        source_row = ttk.Frame(outer)
-        source_row.pack(fill="x", pady=(0, 8))
-        ttk.Label(source_row, text="Manifest URL/file or GitHub repo URL:").pack(side="left")
-        ttk.Entry(source_row, textvariable=self.source_var).pack(side="left", fill="x", expand=True, padx=(8, 8))
-        ttk.Button(source_row, text="Browse File", command=self._browse_manifest).pack(side="left")
+        stat_rail = ttk.Frame(hero, style="UpdaterHero.TFrame")
+        stat_rail.grid(row=0, column=1, sticky="ne")
+        for value, label, pad in [
+            (CURRENT_VERSION, "Canonical version", (0, 0)),
+            ("GitHub + manifest aware", "Source support", (8, 0)),
+            ("Windows + Linux", "Package targets", (8, 0)),
+        ]:
+            card = ttk.Frame(stat_rail, style="UpdaterCard.TFrame", padding=(12, 10))
+            card.pack(fill="x", pady=pad)
+            ttk.Label(card, text=value, style="UpdaterMetaValue.TLabel").pack(anchor="w")
+            ttk.Label(card, text=label, style="UpdaterMetaLabel.TLabel").pack(anchor="w", pady=(3, 0))
 
-        ver_row = ttk.Frame(outer)
-        ver_row.pack(fill="x", pady=(0, 8))
-        ttk.Label(ver_row, text="Current app version:").pack(side="left")
-        ttk.Entry(ver_row, width=12, textvariable=self.version_var).pack(side="left", padx=(8, 16))
-        ttk.Label(ver_row, textvariable=self.latest_var).pack(side="left")
+        source_card = ttk.Frame(outer, style="UpdaterCard.TFrame", padding=(14, 12))
+        source_card.pack(fill="x", pady=(10, 0))
+        ttk.Label(source_card, text="Update source", style="UpdaterSection.TLabel").pack(anchor="w")
+        ttk.Label(
+            source_card,
+            text="Use a manifest URL/file or point directly at a GitHub repository such as https://github.com/owner/repo.",
+            style="UpdaterHint.TLabel",
+            wraplength=760,
+            justify="left",
+        ).pack(anchor="w", pady=(4, 10))
+        source_row = ttk.Frame(source_card, style="UpdaterCard.TFrame")
+        source_row.pack(fill="x")
+        ttk.Entry(source_row, textvariable=self.source_var).pack(side="left", fill="x", expand=True)
+        ttk.Button(source_row, text="Browse File", style="UpdaterQuiet.TButton", command=self._browse_manifest).pack(side="left", padx=(8, 0))
 
-        dl_row = ttk.Frame(outer)
-        dl_row.pack(fill="x", pady=(0, 8))
-        ttk.Label(dl_row, textvariable=self.download_var, wraplength=710).pack(side="left", anchor="w")
-        hash_row = ttk.Frame(outer)
-        hash_row.pack(fill="x", pady=(0, 8))
-        ttk.Label(hash_row, textvariable=self.sha256_var, wraplength=710).pack(side="left", anchor="w")
+        release_card = ttk.Frame(outer, style="UpdaterCard.TFrame", padding=(14, 12))
+        release_card.pack(fill="x", pady=(10, 0))
+        ttk.Label(release_card, text="Release state", style="UpdaterSection.TLabel").pack(anchor="w")
 
-        out_row = ttk.Frame(outer)
-        out_row.pack(fill="x", pady=(0, 8))
-        ttk.Label(out_row, text="Download folder:").pack(side="left")
+        ver_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
+        ver_row.pack(fill="x", pady=(8, 0))
+        ttk.Label(ver_row, text="Current app version", style="UpdaterMetaLabel.TLabel").pack(side="left")
+        ttk.Entry(ver_row, width=12, textvariable=self.version_var).pack(side="left", padx=(8, 14))
+        ttk.Label(ver_row, textvariable=self.latest_var, style="UpdaterValue.TLabel").pack(side="left")
+
+        dl_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
+        dl_row.pack(fill="x", pady=(8, 0))
+        ttk.Label(dl_row, textvariable=self.download_var, style="UpdaterValue.TLabel", wraplength=760, justify="left").pack(side="left", anchor="w")
+        hash_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
+        hash_row.pack(fill="x", pady=(6, 0))
+        ttk.Label(hash_row, textvariable=self.sha256_var, style="UpdaterValue.TLabel", wraplength=760, justify="left").pack(side="left", anchor="w")
+
+        out_row = ttk.Frame(release_card, style="UpdaterCard.TFrame")
+        out_row.pack(fill="x", pady=(10, 0))
+        ttk.Label(out_row, text="Download folder", style="UpdaterMetaLabel.TLabel").pack(side="left")
         ttk.Entry(out_row, textvariable=self.output_dir_var).pack(side="left", fill="x", expand=True, padx=(8, 8))
-        ttk.Button(out_row, text="Browse", command=self._browse_output_dir).pack(side="left")
-        ttk.Button(out_row, text="Open", command=self._open_output_dir).pack(side="left", padx=(8, 0))
+        ttk.Button(out_row, text="Browse", style="UpdaterQuiet.TButton", command=self._browse_output_dir).pack(side="left")
+        ttk.Button(out_row, text="Open", style="UpdaterQuiet.TButton", command=self._open_output_dir).pack(side="left", padx=(8, 0))
 
-        action_row = ttk.Frame(outer)
-        action_row.pack(fill="x", pady=(8, 8))
-        ttk.Button(action_row, text="Check for Updates", command=self._check_updates_clicked).pack(side="left")
-        ttk.Button(action_row, text="Download Update", command=self._download_update_clicked).pack(side="left", padx=(8, 0))
-        ttk.Button(action_row, text="Open Download Link", command=self._open_download_link).pack(side="left", padx=(8, 0))
+        action_row = ttk.Frame(outer, style="Updater.TFrame")
+        action_row.pack(fill="x", pady=(10, 0))
+        ttk.Button(action_row, text="Check for Updates", style="UpdaterPrimary.TButton", command=self._check_updates_clicked).pack(side="left")
+        ttk.Button(action_row, text="Download Update", style="UpdaterQuiet.TButton", command=self._download_update_clicked).pack(side="left", padx=(8, 0))
+        ttk.Button(action_row, text="Open Download Link", style="UpdaterQuiet.TButton", command=self._open_download_link).pack(side="left", padx=(8, 0))
 
         security_frame = ttk.Labelframe(outer, text="Security Options")
-        security_frame.pack(fill="x", pady=(0, 8))
+        security_frame.pack(fill="x", pady=(10, 0))
         ttk.Checkbutton(
             security_frame,
             text="Require HTTPS for update manifest URL",
@@ -986,20 +1101,45 @@ class UpdaterApp:
         ).pack(side="left")
         ttk.Button(
             security_action_row,
-            text="OK",
+            text="Apply",
             command=self._apply_security_settings_clicked,
         ).pack(side="right")
 
         self.progress = ttk.Progressbar(outer, mode="determinate", maximum=100, value=0)
-        self.progress.pack(fill="x", pady=(0, 8))
+        self.progress.pack(fill="x", pady=(10, 8))
 
-        self.notes_box = tk.Text(outer, height=11, wrap="word")
+        notes_card = ttk.Frame(outer, style="UpdaterCard.TFrame", padding=(14, 12))
+        notes_card.pack(fill="both", expand=True, pady=(0, 0))
+        ttk.Label(notes_card, text="Release notes", style="UpdaterSection.TLabel").pack(anchor="w")
+        ttk.Label(
+            notes_card,
+            text="This panel shows release notes, fallback notices, and any blocking security reasons discovered during the update check.",
+            style="UpdaterHint.TLabel",
+            wraplength=760,
+            justify="left",
+        ).pack(anchor="w", pady=(4, 8))
+
+        palette = self._palette()
+        self.notes_box = tk.Text(
+            notes_card,
+            height=11,
+            wrap="word",
+            bg=palette["card_bg"],
+            fg=palette["text_fg"],
+            insertbackground=palette["text_fg"],
+            highlightthickness=1,
+            highlightbackground=palette["card_border"],
+            relief="flat",
+            padx=10,
+            pady=10,
+        )
         self.notes_box.pack(fill="both", expand=True)
         self.notes_box.insert("1.0", "Release notes will appear here after update check.")
         self.notes_box.configure(state="disabled")
 
-        status = ttk.Label(outer, textvariable=self.status_var)
-        status.pack(anchor="w", pady=(8, 0))
+        status_bar = ttk.Frame(outer, style="UpdaterCard.TFrame", padding=(12, 8))
+        status_bar.pack(fill="x", pady=(10, 0))
+        ttk.Label(status_bar, textvariable=self.status_var, style="UpdaterValue.TLabel").pack(anchor="w")
 
     def _browse_manifest(self) -> None:
         raw = filedialog.askopenfilename(
@@ -1164,13 +1304,14 @@ class UpdaterApp:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         parsed = urllib.parse.urlparse(url)
-        default_name = Path(parsed.path).name or f"{DEFAULT_UPDATE_DOWNLOAD_PREFIX}_{self.last_latest or 'latest'}.exe"
+        default_name = Path(parsed.path).name or f"{DEFAULT_UPDATE_DOWNLOAD_PREFIX}_{self.last_latest or 'latest'}"
+        dialog_title, default_extension, filetypes = self._download_dialog_profile(url)
         target = filedialog.asksaveasfilename(
-            title="Save update executable as",
+            title=dialog_title,
             initialdir=str(out_dir),
             initialfile=default_name,
-            defaultextension=".exe",
-            filetypes=[("Executable", "*.exe"), ("All files", "*.*")],
+            defaultextension=default_extension,
+            filetypes=filetypes,
         )
         if not target:
             return

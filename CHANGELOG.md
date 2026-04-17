@@ -7,7 +7,7 @@ This changelog includes:
 - Full `0.5` and `0.6.x` feature/fix/security/build history
 - Rapid revision trails captured in archive snapshots
 
-## [Unreleased]
+## [1.8.5] - 2026-04-16
 
 ### Added
 - New `Torrents` workspace tab for creating `.torrent` files in-app and downloading/extracting torrent contents through the optional `Aria2` backend.
@@ -15,11 +15,17 @@ This changelog includes:
 - Torrent sources opened in `Torrents` now expose file-level selection with search, select-all/select-none, toggle controls, and a per-torrent progress view with individual file progress bars.
 - `Aria2 -> Downloads` and `Aria2 -> Torrents` now include inline pause/resume/stop controls plus state badges so active transfer state is visible without adding more modal workflow interruptions.
 - Linux packaging now emits stable “latest” aliases for the Debian package and AppImage so the repo front page can link directly to the current installer assets.
+- The app now exposes a clear uninstall flow through `File -> Uninstall...` and `Settings -> Uninstall App`, with platform-specific actions for Windows uninstallers, Debian package removal, AppImage cleanup guidance, and portable/source copies.
+- Windows GitHub Actions now build the app, updater, and installer on tagged releases so the Windows installer link on the repo front page is tied to an automated release path instead of manual drift.
+- Install-surface validation now checks that documented public installer filenames are present in the build outputs before release staging completes.
 
 ### Changed
+- Ubuntu/Linux packaging guidance now clearly separates packaged installs (`.deb` or AppImage) from contributor source builds, and documents that packaged installs do not depend on the source tree after installation.
 - The front-page `README.md` is now a shorter GitHub-facing install and overview page, while the detailed instructions moved to `docs/USER_GUIDE.md`.
-- Workspace modules now render with a shared module hero that explains what the tab is for, what stands out, and what the intended workflow is before the controls begin.
+- Workspace modules now render with a stronger shared shell, including a premium module header, clearer hierarchy, and animated accent treatment on tab focus without changing the underlying workflows.
 - The shared theme has been reworked around a more deliberate cross-platform palette and clearer visual hierarchy so the app reads less like a utility scaffold and more like a finished desktop tool.
+- Startup loading now uses a more polished branded sequence instead of the earlier simple geometric loader, while keeping the existing reduced-motion and focus-loss behaviors intact.
+- The standalone updater now uses the same visual language as the main app and no longer assumes Windows `.exe` output when saving Linux `.deb`, AppImage, or tarball updates.
 - Linux port groundwork now uses XDG-style config paths for app and updater settings instead of assuming `%LOCALAPPDATA%`.
 - Backend install guidance now chooses platform-appropriate commands, including Linux package-manager suggestions where supported.
 - Backend detection now checks common Linux binary locations for FFmpeg, Pandoc, LibreOffice, 7-Zip, and ImageMagick.
@@ -36,9 +42,11 @@ This changelog includes:
 - Linux builds now show an explicit in-app fallback message when drag-and-drop is unavailable, directing users to the existing Add Files / Add Folder controls.
 - App and updater entrypoints now expose `--version` and `--smoke-test` CLI modes so Linux CI can validate the frozen binaries headlessly after build.
 - The `Torrents` tab now shows a persistent safety disclaimer warning users to only download trusted content and clarifying that the app does not accept responsibility for damage caused by torrent sources or downloaded data.
-- Release documentation and version constants now explicitly follow the `X.0` / `X.Y` / `X.Y.Z` versioning policy for major, secondary, and patch updates.
+- Version surfaces are now aligned to the coordinated `1.8.5` release target across the app, updater, installer metadata, manifest example, and public docs.
 - Startup loading now minimizes itself if the splash loses focus; fullscreen launches restore automatically when loading finishes, while windowed launches stay minimized and flash the taskbar instead of stealing focus.
 - Windowed drag strips now derive their top-bar color from the dominant color in the current Windows wallpaper, so the custom title area matches the desktop more closely.
+- `build_linux.sh` now self-bootstraps a repo-local virtual environment on Ubuntu/Debian, reuses an already active venv when present, and fails fast with the exact prerequisite install command instead of falling into PEP 668 system-pip errors.
+- Windows installer builds now add a Start-menu uninstall shortcut so installed copies have a standard OS-level removal entry in addition to the in-app uninstall action.
 
 ## [0.7.3] - 2026-04-05
 

@@ -2,20 +2,15 @@
 
 This guide keeps the detailed install, build, workflow, backend, and archive notes that used to live in the repo front-page README.
 
-Version: `0.7.3`
+Version: `1.8.5`
 
 Changelog:
 - `CHANGELOG.md` (full project history and release notes)
 - `archive/ARCHIVE_INDEX.md` (archive map and external archive-root policy)
 
-Versioning policy:
-- Major releases use `X.0`
-- Secondary feature releases use `X.Y`
-- Patch releases use `X.Y.Z`
-- Examples:
-  - major: `1.0`
-  - secondary: `1.1` through `1.9`
-  - patches: `1.1.1` through `1.9.99`
+Canonical release line:
+- `1.8.5` is the current Windows + Linux UX, packaging, and audit milestone.
+- Version numbers are now coordinated per release target instead of following the older staged-major/staged-minor note that used to live in this file.
 
 This is a modular desktop suite for practical file workflows:
 - Convert
@@ -56,6 +51,17 @@ Installer behavior is configured to reduce duplicate installs and preserve upgra
 Runtime behavior:
 - Main app is single-instance (one running copy at a time)
 - Updater is also single-instance
+
+Uninstall behavior:
+- Windows installed builds now expose `File -> Uninstall...`, `Settings -> Uninstall App`, and a Start-menu shortcut named `Uninstall Universal Conversion Hub (UCH)`
+- Debian installs expose `File -> Uninstall...`, `Settings -> Uninstall App`, or the manual command:
+
+```bash
+sudo apt remove universal-conversion-hub-uch
+```
+
+- AppImage copies are removed by deleting the `.AppImage` file
+- Settings and output folders are not removed automatically
 
 ## 1) What The App Does
 
@@ -172,7 +178,7 @@ Example:
 
 ```json
 {
-  "latest_version": "0.7.3",
+  "latest_version": "1.8.5",
   "download_url": "https://example.com/UniversalConversionHub_UCH.exe",
   "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "notes": "Release notes here"
@@ -242,12 +248,16 @@ Launch after `.deb` install:
 universal-conversion-hub-uch
 ```
 
+The Debian package installs a standalone app under `/opt/universal-conversion-hub-uch`. It does not rely on the source checkout after install.
+
 Ubuntu 24.04 install from AppImage:
 
 ```bash
 chmod +x UniversalConversionHub_UCH_linux_<arch>.AppImage
 ./UniversalConversionHub_UCH_linux_<arch>.AppImage
 ```
+
+The AppImage is also self-contained. You can move it anywhere you want after download.
 
 Optional AppImage launcher install:
 
@@ -258,12 +268,23 @@ chmod +x ~/Applications/UniversalConversionHub_UCH_linux_<arch>.AppImage
 ~/Applications/UniversalConversionHub_UCH_linux_<arch>.AppImage
 ```
 
-Source build prerequisites on Ubuntu 24.04:
+Ubuntu 24.04 build-from-source prerequisites:
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip python3-tk tk-dev dpkg-dev curl
+sudo apt install -y python3 python3-venv python3-tk tk-dev dpkg-dev curl
 ```
+
+If `apt update` fails because of an unrelated third-party repository on your machine, fix or disable that repository first. That is outside this project's build logic.
+
+Build from a clean clone:
+
+```bash
+chmod +x build_linux.sh
+./build_linux.sh
+```
+
+`build_linux.sh` now creates and reuses a repo-local `.venv` automatically. Do not run a system-wide `pip install` for this project on Ubuntu 24.04.
 
 GitHub Actions Linux workflow:
 - `.github/workflows/linux-build-release.yml`
@@ -275,7 +296,7 @@ GitHub Actions Linux workflow:
 
 ### Basic dependencies
 
-Install Python dependencies:
+For source development outside the Linux packaging flow:
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -371,4 +392,3 @@ Updater download folder default:
 - Use lawful personal workflows.
 - Test on a small sample before large batch jobs.
 - Keep backups for destructive operations.
-

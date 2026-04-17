@@ -8,25 +8,25 @@ set SNAPSHOT_SCRIPT=%ROOT%tools\create_historical_snapshot.ps1
 set STAGE_DIR=%ROOT%release_bins
 
 if exist "%SNAPSHOT_SCRIPT%" (
-  echo [0/6] Creating pre-build source snapshot...
+  echo [0/7] Creating pre-build source snapshot...
   powershell -NoProfile -ExecutionPolicy Bypass -File "%SNAPSHOT_SCRIPT%" -RepoRoot "%ROOT_CLEAN%" -Reason "pre-build" >nul
 )
 
-echo [1/6] Building app one-file executable...
+echo [1/7] Building app one-file executable...
 python -m PyInstaller --noconfirm --clean UniversalConversionHub_UCH.spec
 if errorlevel 1 (
   echo App build failed.
   exit /b 1
 )
 
-echo [2/6] Building updater one-file executable...
+echo [2/7] Building updater one-file executable...
 python -m PyInstaller --noconfirm --clean UniversalConversionHub_UCH_Updater.spec
 if errorlevel 1 (
   echo Updater build failed.
   exit /b 4
 )
 
-echo [3/6] Building installer (Inno Setup)...
+echo [3/7] Building installer (Inno Setup)...
 set ISCC_PATH=
 if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set ISCC_PATH=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe
 if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" set ISCC_PATH=C:\Program Files (x86)\Inno Setup 6\ISCC.exe
@@ -41,7 +41,7 @@ if errorlevel 1 (
   exit /b 3
 )
 
-echo [4/6] Staging executables in release_bins...
+echo [4/7] Staging executables in release_bins...
 if not exist "%STAGE_DIR%" mkdir "%STAGE_DIR%"
 if exist "%ROOT%dist\UniversalConversionHub_HCB.exe" del /f /q "%ROOT%dist\UniversalConversionHub_HCB.exe" >nul 2>nul
 if exist "%ROOT%dist\UniversalFileUtilitySuite.exe" del /f /q "%ROOT%dist\UniversalFileUtilitySuite.exe" >nul 2>nul
@@ -59,12 +59,19 @@ copy /y "%ROOT%dist\UniversalConversionHub_UCH.exe" "%STAGE_DIR%\UniversalConver
 copy /y "%ROOT%dist\UniversalConversionHub_UCH_Updater.exe" "%STAGE_DIR%\UniversalConversionHub_UCH_Updater.exe" >nul
 copy /y "%ROOT%installer_output\UniversalConversionHub_UCH_Setup.exe" "%STAGE_DIR%\UniversalConversionHub_UCH_Setup.exe" >nul
 
+echo [5/7] Validating install surface...
+python "%ROOT%tools\validate_install_surface.py" --readme "%ROOT%README.md" --artifacts "%ROOT%release_bins" "%ROOT%installer_output" "%ROOT%dist" --required-asset "UniversalConversionHub_UCH_Setup.exe"
+if errorlevel 1 (
+  echo Install surface validation failed.
+  exit /b 5
+)
+
 if exist "%SNAPSHOT_SCRIPT%" (
-  echo [5/6] Creating post-build source + artifact snapshot...
+  echo [6/7] Creating post-build source + artifact snapshot...
   powershell -NoProfile -ExecutionPolicy Bypass -File "%SNAPSHOT_SCRIPT%" -RepoRoot "%ROOT_CLEAN%" -Reason "release-build" -IncludeBuildOutputs >nul
 )
 
-echo [6/6] Done.
+echo [7/7] Done.
 echo App EXE:      "%ROOT%dist\UniversalConversionHub_UCH.exe"
 echo Updater EXE:  "%ROOT%dist\UniversalConversionHub_UCH_Updater.exe"
 echo Installer:    "%ROOT%installer_output\UniversalConversionHub_UCH_Setup.exe"

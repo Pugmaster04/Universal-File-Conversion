@@ -1,0 +1,73 @@
+name: Windows Build and Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - codex/linux-port
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Windows build prerequisites
+        shell: powershell
+        run: |
+          choco install innosetup --no-progress -y
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Build Windows artifacts
+        shell: cmd
+        run: build_suite_release.bat
+
+      - name: Validate install surface
+        shell: powershell
+        run: |
+          python tools/validate_install_surface.py --readme README.md --artifacts release_bins installer_output dist --required-asset UniversalConversionHub_UCH_Setup.exe
+
+      - name: Upload Windows build artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-build-artifacts
+          if-no-files-found: error
+          path: |
+            dist/UniversalConversionHub_UCH.exe
+            dist/UniversalConversionHub_UCH_Updater.exe
+            installer_output/UniversalConversionHub_UCH_Setup.exe
+            release_bins/UniversalConversionHub_UCH.exe
+            release_bins/UniversalConversionHub_UCH_Updater.exe
+            release_bins/UniversalConversionHub_UCH_Setup.exe
+
+      - name: Publish Windows release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title $tag --notes "Windows build artifact added by GitHub Actions."
+          }
+          gh release upload $tag `
+            release_bins/UniversalConversionHub_UCH.exe `
+            release_bins/UniversalConversionHub_UCH_Updater.exe `
+            release_bins/UniversalConversionHub_UCH_Setup.exe `
+            --clobber

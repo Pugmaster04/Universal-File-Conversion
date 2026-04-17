@@ -23,16 +23,11 @@ jobs:
       - name: Install Linux build prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3 python3-venv python3-pip python3-tk tk-dev dpkg-dev curl
-
-      - name: Create build virtual environment
-        run: |
-          python3 -m venv .venv-linux-build
+          sudo apt-get install -y python3 python3-venv python3-tk tk-dev dpkg-dev curl
 
       - name: Build Linux artifacts
         shell: bash
         run: |
-          source .venv-linux-build/bin/activate
           chmod +x build_linux.sh
           ./build_linux.sh
 
@@ -65,6 +60,15 @@ jobs:
           test -f deb-smoke/usr/share/pixmaps/universal-conversion-hub-uch.png
           test -f release_bins/universal-conversion-hub-uch_latest_amd64.deb || test -f release_bins/universal-conversion-hub-uch_latest_arm64.deb
           test -f release_bins/UniversalConversionHub_UCH_linux_latest_x86_64.AppImage || test -f release_bins/UniversalConversionHub_UCH_linux_latest_arm64.AppImage
+
+      - name: Validate install surface
+        shell: bash
+        run: |
+          python3 tools/validate_install_surface.py \
+            --readme README.md \
+            --artifacts release_bins \
+            --required-asset universal-conversion-hub-uch_latest_amd64.deb \
+            --required-asset UniversalConversionHub_UCH_linux_latest_x86_64.AppImage
 
       - name: Upload Linux build artifacts
         uses: actions/upload-artifact@v6

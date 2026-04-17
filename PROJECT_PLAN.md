@@ -59,15 +59,10 @@ Each module should be independently testable, replaceable, and extensible.
   - Subtitles
   - Presets / Batch Jobs
 
-## Release Versioning Policy
-- Major releases use `X.0`
-- Secondary feature releases use `X.Y`
-- Patch releases use `X.Y.Z`
-- Practical examples:
-  - `1.0` = major milestone
-  - `1.1` to `1.9` = secondary feature updates within that major line
-  - `1.1.1` to `1.9.99` = patch/hotfix updates within a secondary release
-- Future release bumps should follow this structure for app version, updater version, installer version, manifest version, README version, and changelog entries.
+## Current Release Target
+- Canonical coordinated release: `1.8.5`
+- This milestone combines the Windows installer path, Linux packaging path, shared UX redesign work, and the cross-platform audit pass in one release line.
+- App version, updater version, installer metadata, manifest version, and public install docs should stay aligned to the same release target.
 
 ## Next Recommended Upgrades
 1. Add persistent job database (SQLite) for resumable queues.
@@ -80,4 +75,3 @@ Each module should be independently testable, replaceable, and extensible.
    - Linux release packaging
    - code signing
    - automated release publishing
-
