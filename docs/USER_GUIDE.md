@@ -2,14 +2,14 @@
 
 This guide keeps the detailed install, build, workflow, backend, and archive notes that used to live in the repo front-page README.
 
-Version: `1.8.9`
+Version: `1.8.10`
 
 Changelog:
 - `CHANGELOG.md` (full project history and release notes)
 - `archive/ARCHIVE_INDEX.md` (archive map and external archive-root policy)
 
 Canonical release line:
-- `1.8.9` is the current Windows + Linux UX, packaging, and audit milestone.
+- `1.8.10` is the current Windows + Linux UX, packaging, and audit milestone.
 - Version numbers are now coordinated per release target instead of following the older staged-major/staged-minor note that used to live in this file.
 
 This is a modular desktop suite for practical file workflows:
@@ -183,8 +183,8 @@ Example:
 
 ```json
 {
-  "latest_version": "1.8.9",
-  "download_url": "https://github.com/Pugmaster04/Format-Foundry/releases/download/v1.8.9/FormatFoundry_Setup.exe",
+  "latest_version": "1.8.10",
+  "download_url": "https://github.com/Pugmaster04/Format-Foundry/releases/download/v1.8.10/FormatFoundry_Setup.exe",
   "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "notes": "Release notes here",
   "compatibility": {

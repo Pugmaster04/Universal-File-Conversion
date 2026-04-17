@@ -31,9 +31,10 @@ from support_runtime import (
 
 
 APP_TITLE = "Format Foundry Updater"
-CURRENT_VERSION = "1.8.9"
+CURRENT_VERSION = "1.8.10"
 APP_SLUG = "FormatFoundry"
 LEGACY_APP_SLUGS = ("UniversalConversionHubUCH", "UniversalConversionHubHCB", "UniversalFileUtilitySuite")
+LEGACY_GITHUB_REPOS = ("Pugmaster04/Universal-File-Conversion",)
 SINGLE_INSTANCE_MUTEX_NAMES = (
     "Local\\FormatFoundryUpdater_SingleInstanceMutex",
     "Local\\UniversalConversionHubUCHUpdater_SingleInstanceMutex",
@@ -336,7 +337,7 @@ class UpdaterApp:
 
         self._apply_icon()
 
-        saved_source = str(self.settings.get("source", "")).strip()
+        saved_source = self._normalize_update_source(str(self.settings.get("source", "")).strip())
         self.source_var = StringVar(value=saved_source or self._default_manifest_source())
         self.version_var = StringVar(value=CURRENT_VERSION)
         self.output_dir_var = StringVar(value=str(self.settings.get("output_dir", str(default_download_dir()))))
@@ -661,6 +662,15 @@ class UpdaterApp:
         # Default to the project GitHub repo so update checks work without local manifest setup.
         return DEFAULT_GITHUB_REPO_URL
 
+    def _normalize_update_source(self, source: str) -> str:
+        value = str(source or "").strip()
+        if not value:
+            return ""
+        repo_spec = self._extract_github_repo_spec(value)
+        if repo_spec in LEGACY_GITHUB_REPOS or value in LEGACY_GITHUB_REPOS:
+            return DEFAULT_GITHUB_REPO_URL
+        return value
+
     def _trusted_update_hosts(self) -> tuple[str, ...]:
         raw = str(self.trusted_hosts_var.get()).strip()
         return parse_trusted_host_patterns(raw or DEFAULT_TRUSTED_UPDATE_HOSTS)
@@ -820,8 +830,8 @@ class UpdaterApp:
             return ""
         return max(tags, key=lambda tag: (version_tuple(tag), tag))
 
-    def _select_release_asset(self, assets: list[dict[str, Any]]) -> tuple[str, str]:
-        normalized: list[tuple[str, str, str]] = []
+    def _select_release_asset(self, assets: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, str, str]:
+        normalized: list[tuple[dict[str, Any], str, str, str]] = []
         for asset in assets:
             if not isinstance(asset, dict):
                 continue
@@ -832,9 +842,9 @@ class UpdaterApp:
             lower = name.lower()
             if lower.endswith((".sha256", ".sha256sum", ".sha256.txt", ".checksums", ".checksum", ".sig")):
                 continue
-            normalized.append((lower, name, url))
+            normalized.append((asset, lower, name, url))
         if not normalized:
-            return "", ""
+            return None, "", ""
 
         def is_primary_app_asset(lower: str) -> bool:
             normalized_name = lower.replace("_", "-")
@@ -882,10 +892,23 @@ class UpdaterApp:
                 lambda _lower: True,
             ]
         for rule in priority_checks:
-            for lower_name, name, url in normalized:
+            for asset, lower_name, name, url in normalized:
                 if rule(lower_name):
-                    return name, url
-        return "", ""
+                    return asset, name, url
+        return None, "", ""
+
+    def _extract_sha256_from_asset_metadata(self, asset: dict[str, Any] | None) -> str:
+        if not isinstance(asset, dict):
+            return ""
+        for candidate in (asset.get("digest"), asset.get("sha256"), asset.get("checksum")):
+            if candidate is None:
+                continue
+            text = str(candidate).strip().lower()
+            if text.startswith("sha256:"):
+                text = text.split(":", 1)[1].strip()
+            if looks_like_sha256(text):
+                return text
+        return ""
 
     def _find_sha256_in_text(self, text: str, target_name: str = "") -> str:
         target_lower = target_name.strip().lower()
@@ -904,7 +927,17 @@ class UpdaterApp:
                 first_hash = candidate
         return first_hash
 
-    def _extract_sha256_from_release(self, notes: str, assets: list[dict[str, Any]], target_name: str) -> str:
+    def _extract_sha256_from_release(
+        self,
+        notes: str,
+        assets: list[dict[str, Any]],
+        target_name: str,
+        selected_asset: dict[str, Any] | None = None,
+    ) -> str:
+        from_asset = self._extract_sha256_from_asset_metadata(selected_asset)
+        if looks_like_sha256(from_asset):
+            return from_asset
+
         from_notes = self._find_sha256_in_text(notes, target_name=target_name)
         if looks_like_sha256(from_notes):
             return from_notes
@@ -963,8 +996,8 @@ class UpdaterApp:
             notes = str(release.get("body") or "").strip()
             raw_assets = release.get("assets")
             assets = raw_assets if isinstance(raw_assets, list) else []
-            asset_name, download_url = self._select_release_asset(assets)
-            sha256_value = self._extract_sha256_from_release(notes, assets, asset_name)
+            selected_asset, asset_name, download_url = self._select_release_asset(assets)
+            sha256_value = self._extract_sha256_from_release(notes, assets, asset_name, selected_asset=selected_asset)
             release_url = str(release.get("html_url") or "").strip()
             if not download_url and release_url:
                 notes = (
@@ -1068,6 +1101,7 @@ class UpdaterApp:
         )
 
     def _read_update_source(self, source: str) -> dict[str, Any]:
+        source = self._normalize_update_source(source)
         repo_spec = self._extract_github_repo_spec(source)
         if repo_spec:
             return self._read_github_release_manifest(repo_spec)

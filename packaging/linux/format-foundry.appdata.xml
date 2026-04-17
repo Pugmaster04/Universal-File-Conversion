@@ -37,6 +37,14 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.8.10" date="2026-04-17">
+      <description>
+        <ul>
+          <li>The updater now accepts GitHub release asset SHA256 digests so checksum verification works against the canonical release feed.</li>
+          <li>Linux startup animation now uses a Linux-safe splash window mode so the intro animation appears reliably on desktop launches.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.8.9" date="2026-04-17">
       <description>
         <ul>

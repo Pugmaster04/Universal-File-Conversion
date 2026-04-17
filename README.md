@@ -2,7 +2,7 @@
 
 Format Foundry is a cross-platform desktop toolkit for conversion, compression, extraction, media prep, downloads, archives, storage analysis, and repeatable batch workflows.
 
-Canonical release target: `1.8.9`
+Canonical release target: `1.8.10`
 
 Website:
 - Overview: [index.html](https://pugmaster04.github.io/Format-Foundry/index.html)

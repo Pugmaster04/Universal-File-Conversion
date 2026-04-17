@@ -83,7 +83,7 @@ except Exception:
 APP_TITLE = "Format Foundry"
 APP_SLUG = "FormatFoundry"
 LEGACY_APP_SLUGS = ("UniversalConversionHubUCH", "UniversalConversionHubHCB", "UniversalFileUtilitySuite")
-APP_VERSION = "1.8.9"
+APP_VERSION = "1.8.10"
 DEFAULT_UPDATE_MANIFEST_URL = ""
 APP_EXE_BASENAME = "FormatFoundry"
 UPDATER_EXE_BASENAME = "FormatFoundry_Updater"
@@ -2111,8 +2111,8 @@ class SuiteApp:
         if show_startup_animation:
             try:
                 self._show_startup_logo_animation(show_main_when_done=False, modal=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                self.log(f"Startup animation unavailable: {exc}")
         self._run_startup_update_flow()
         self._show_main_window_after_startup()
 
@@ -2292,7 +2292,7 @@ class SuiteApp:
 
         ttk.Label(
             content_body,
-            text='Manifest example: {"latest_version":"1.8.9","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Manifest example: {"latest_version":"1.8.10","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=590,
             justify="left",
@@ -4761,7 +4761,7 @@ class SuiteApp:
         ttk.Entry(general_tab, textvariable=update_url_var).pack(fill="x", pady=(4, 0))
         ttk.Label(
             general_tab,
-            text='Example JSON: {"latest_version":"1.8.9","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Example JSON: {"latest_version":"1.8.10","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=760,
         ).pack(anchor="w", pady=(4, 0))
@@ -5222,8 +5222,24 @@ class SuiteApp:
         self._startup_splash_hidden_by_focus_loss = False
         splash = tk.Toplevel(self.root)
         splash.withdraw()
-        splash.overrideredirect(True)
-        splash.attributes("-topmost", True)
+        if os.name == "nt":
+            try:
+                splash.overrideredirect(True)
+            except Exception:
+                pass
+            try:
+                splash.attributes("-topmost", True)
+            except Exception:
+                pass
+        else:
+            try:
+                splash.resizable(False, False)
+            except Exception:
+                pass
+            try:
+                splash.attributes("-type", "splash")
+            except Exception:
+                pass
         splash.configure(bg="#07111C")
         self._apply_window_icon_to(splash)
 
