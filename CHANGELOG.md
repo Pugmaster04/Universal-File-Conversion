@@ -9,6 +9,12 @@ This changelog includes:
 
 ## [Unreleased]
 
+## [1.8.9] - 2026-04-17
+
+### Fixed
+- The top overview and quick-action shell can now be collapsed and restored from a top-level `Overview` control, reducing wasted vertical space on both Windows and Linux.
+- The native menu bar is now organized as `File`, `Edit`, `Settings`, `Overview`, and `Help`, so the overview toggle sits next to the main app controls instead of being buried in the shell.
+
 ## [1.8.8] - 2026-04-16
 
 ### Added

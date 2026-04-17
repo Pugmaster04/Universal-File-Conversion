@@ -60,7 +60,7 @@ Each module should be independently testable, replaceable, and extensible.
   - Presets / Batch Jobs
 
 ## Current Release Target
-- Canonical coordinated release: `1.8.8`
+- Canonical coordinated release: `1.8.9`
 - This milestone combines the Windows installer path, Linux packaging path, shared UX redesign work, and the cross-platform audit pass in one release line.
 - App version, updater version, installer metadata, manifest version, and public install docs should stay aligned to the same release target.
 

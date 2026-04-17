@@ -37,6 +37,14 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.8.9" date="2026-04-17">
+      <description>
+        <ul>
+          <li>Added a collapsible overview shell so the large startup header and quick actions can be hidden when more workspace area is needed.</li>
+          <li>Reorganized the top menu into File, Edit, Settings, Overview, and Help for more direct access to shell controls.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.8.8" date="2026-04-16">
       <description>
         <ul>

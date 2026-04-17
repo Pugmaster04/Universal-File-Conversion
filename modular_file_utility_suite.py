@@ -83,7 +83,7 @@ except Exception:
 APP_TITLE = "Format Foundry"
 APP_SLUG = "FormatFoundry"
 LEGACY_APP_SLUGS = ("UniversalConversionHubUCH", "UniversalConversionHubHCB", "UniversalFileUtilitySuite")
-APP_VERSION = "1.8.8"
+APP_VERSION = "1.8.9"
 DEFAULT_UPDATE_MANIFEST_URL = ""
 APP_EXE_BASENAME = "FormatFoundry"
 UPDATER_EXE_BASENAME = "FormatFoundry_Updater"
@@ -2052,6 +2052,7 @@ class SuiteApp:
         self.dark_mode_var = BooleanVar(value=bool(self.settings.get("dark_mode", False)))
         self.fullscreen_var = BooleanVar(value=bool(self.settings.get("fullscreen", False)))
         self.borderless_max_var = BooleanVar(value=bool(self.settings.get("borderless_maximized", False)))
+        self.show_overview_panel_var = BooleanVar(value=bool(self.settings.get("show_overview_panel", True)))
         self._startup_window_shown = False
         self._startup_tasks_scheduled = False
         self._startup_update_flow_handled = False
@@ -2068,6 +2069,8 @@ class SuiteApp:
         self.workspace_tab: ttk.Frame | None = None
         self.backend_corner_button: ttk.Button | None = None
         self._root_frame: ttk.Frame | None = None
+        self._content_frame: ttk.Frame | None = None
+        self._overview_panel_host: ttk.Frame | None = None
         self._header_card: ttk.Frame | None = None
         self.window_drag_strip: ttk.Frame | None = None
         self.window_drag_label: ttk.Label | None = None
@@ -2124,6 +2127,7 @@ class SuiteApp:
             "high_contrast_mode": False,
             "fullscreen": False,
             "borderless_maximized": False,
+            "show_overview_panel": True,
             "reduce_motion": False,
             "ui_scale_percent": 100,
             "use_hover_tooltips": False,
@@ -2288,7 +2292,7 @@ class SuiteApp:
 
         ttk.Label(
             content_body,
-            text='Manifest example: {"latest_version":"1.8.8","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Manifest example: {"latest_version":"1.8.9","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=590,
             justify="left",
@@ -3197,8 +3201,10 @@ class SuiteApp:
         if self._window_drag_strip_enabled():
             if not self.window_drag_strip.winfo_manager():
                 pack_kwargs: dict[str, Any] = {"fill": "x", "pady": (0, 8)}
-                if self._header_card is not None:
-                    pack_kwargs["before"] = self._header_card
+                if self._overview_panel_host is not None and self._overview_panel_host.winfo_manager():
+                    pack_kwargs["before"] = self._overview_panel_host
+                elif self._content_frame is not None:
+                    pack_kwargs["before"] = self._content_frame
                 self.window_drag_strip.pack(**pack_kwargs)
         elif self.window_drag_strip.winfo_manager():
             self.window_drag_strip.pack_forget()
@@ -3350,32 +3356,43 @@ class SuiteApp:
         file_menu = tk.Menu(menu, tearoff=0)
         file_menu.add_command(label="Open Output Folder", command=self._open_output_folder)
         file_menu.add_command(label="Open Program Folder", command=lambda: self._open_path(self.runtime_dir))
-        file_menu.add_command(label="Uninstall...", command=self._open_uninstall_dialog)
-        file_menu.add_command(label="Settings", command=self._open_settings_dialog)
-        file_menu.add_separator()
-        file_menu.add_command(label="Run First-Run Setup Wizard", command=self._rerun_setup_wizard)
-        file_menu.add_command(label="Install Missing Backends", command=self._open_backend_install_assistant)
-        file_menu.add_command(label="Export Bug Report...", command=self._export_bug_report)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self._request_close)
         menu.add_cascade(label="File", menu=file_menu)
 
-        view_menu = tk.Menu(menu, tearoff=0)
-        view_menu.add_command(label="Go To Backends / Links", command=lambda: self.select_tab("Backends / Links"))
-        view_menu.add_separator()
-        view_menu.add_command(label="Go To Convert", command=lambda: self.select_tab("Convert"))
-        view_menu.add_command(label="Go To Compress", command=lambda: self.select_tab("Compress"))
-        view_menu.add_command(label="Go To Extract", command=lambda: self.select_tab("Extract"))
-        view_menu.add_command(label="Go To Presets / Batch Jobs", command=lambda: self.select_tab("Presets / Batch Jobs"))
-        view_menu.add_separator()
-        view_menu.add_checkbutton(
+        edit_menu = tk.Menu(menu, tearoff=0)
+        edit_menu.add_command(label="Go To Backends / Links", command=lambda: self.select_tab("Backends / Links"))
+        edit_menu.add_separator()
+        edit_menu.add_command(label="Go To Convert", command=lambda: self.select_tab("Convert"))
+        edit_menu.add_command(label="Go To Compress", command=lambda: self.select_tab("Compress"))
+        edit_menu.add_command(label="Go To Extract", command=lambda: self.select_tab("Extract"))
+        edit_menu.add_command(label="Go To Presets / Batch Jobs", command=lambda: self.select_tab("Presets / Batch Jobs"))
+        edit_menu.add_separator()
+        edit_menu.add_checkbutton(
             label="Borderless Maximized (F10)",
             variable=self.borderless_max_var,
             command=self._on_borderless_changed,
         )
-        view_menu.add_checkbutton(label="Fullscreen (F11)", variable=self.fullscreen_var, command=self._on_fullscreen_changed)
-        view_menu.add_checkbutton(label="Dark Mode", variable=self.dark_mode_var, command=self._on_dark_mode_changed)
-        menu.add_cascade(label="View", menu=view_menu)
+        edit_menu.add_checkbutton(label="Fullscreen (F11)", variable=self.fullscreen_var, command=self._on_fullscreen_changed)
+        edit_menu.add_checkbutton(label="Dark Mode", variable=self.dark_mode_var, command=self._on_dark_mode_changed)
+        menu.add_cascade(label="Edit", menu=edit_menu)
+
+        settings_menu = tk.Menu(menu, tearoff=0)
+        settings_menu.add_command(label="Settings...", command=self._open_settings_dialog)
+        settings_menu.add_command(label="Uninstall...", command=self._open_uninstall_dialog)
+        settings_menu.add_separator()
+        settings_menu.add_command(label="Run First-Run Setup Wizard", command=self._rerun_setup_wizard)
+        settings_menu.add_command(label="Install Missing Backends", command=self._open_backend_install_assistant)
+        settings_menu.add_command(label="Export Bug Report...", command=self._export_bug_report)
+        settings_menu.add_separator()
+        settings_menu.add_checkbutton(
+            label="Show Overview Panel",
+            variable=self.show_overview_panel_var,
+            command=self._on_overview_panel_setting_changed,
+        )
+        menu.add_cascade(label="Settings", menu=settings_menu)
+
+        menu.add_command(label="Overview", command=self._toggle_overview_panel)
 
         help_menu = tk.Menu(menu, tearoff=0)
         help_menu.add_command(label="Check for Updates", command=lambda: self._check_updates_in_background(interactive=True))
@@ -3398,7 +3415,11 @@ class SuiteApp:
         self._bind_window_drag_widget(self.window_drag_strip)
         self._bind_window_drag_widget(self.window_drag_label)
 
-        header_card = ttk.Frame(root_frame, style="HeaderCard.TFrame", padding=(16, 14))
+        overview_panel_host = ttk.Frame(root_frame, style="App.TFrame")
+        overview_panel_host.pack(fill="x", pady=(0, 8))
+        self._overview_panel_host = overview_panel_host
+
+        header_card = ttk.Frame(overview_panel_host, style="HeaderCard.TFrame", padding=(16, 14))
         header_card.pack(fill="x")
         self._header_card = header_card
 
@@ -3448,7 +3469,7 @@ class SuiteApp:
                 ttk.Label(panel, text=str(value), style="HeaderStatValue.TLabel").pack(anchor="w")
             ttk.Label(panel, text=label, style="HeaderStatLabel.TLabel").pack(anchor="w", pady=(3, 0))
 
-        quick_shell = ttk.Frame(root_frame, style="App.TFrame")
+        quick_shell = ttk.Frame(overview_panel_host, style="App.TFrame")
         quick_shell.pack(fill="x", pady=(8, 0))
         quick_shell.columnconfigure(0, weight=1)
 
@@ -3464,11 +3485,9 @@ class SuiteApp:
         )
 
         self.backend_hover_cards = []
-        content_frame = ttk.Frame(root_frame, style="Surface.TFrame", padding=(10, 8, 10, 8))
-        content_frame.pack(fill="both", expand=True)
+        corner_bar = ttk.Frame(overview_panel_host, style="App.TFrame")
+        corner_bar.pack(fill="x", pady=(8, 0))
 
-        corner_bar = ttk.Frame(content_frame, style="Surface.TFrame")
-        corner_bar.pack(fill="x", pady=(0, 4))
         self.backend_corner_button = ttk.Button(
             corner_bar,
             text="Backends",
@@ -3485,6 +3504,10 @@ class SuiteApp:
                 font_provider=self._tooltip_font,
             )
         )
+
+        content_frame = ttk.Frame(root_frame, style="Surface.TFrame", padding=(10, 8, 10, 8))
+        content_frame.pack(fill="both", expand=True)
+        self._content_frame = content_frame
 
         top_notebook = ttk.Notebook(content_frame, style="TopTabs.TNotebook")
         top_notebook.pack(fill="both", expand=True)
@@ -3584,6 +3607,7 @@ class SuiteApp:
         self.log_box.pack(fill="both", expand=True, padx=10, pady=10)
 
         self._apply_theme(bool(self.dark_mode_var.get()))
+        self._apply_overview_panel_visibility(log_change=False)
         self._update_window_drag_strip_visibility()
 
         status_bar = ttk.Frame(root_frame, style="StatusBar.TFrame")
@@ -3600,6 +3624,39 @@ class SuiteApp:
         body.pack(fill="x", expand=True, padx=8, pady=8)
         for index, (label, command, style_name) in enumerate(actions):
             ttk.Button(body, text=label, style=style_name, command=command).pack(side="left", padx=(0 if index == 0 else 6, 0))
+
+    def _apply_overview_panel_visibility(self, log_change: bool = True) -> None:
+        host = self._overview_panel_host
+        if host is None:
+            return
+        visible = bool(self.show_overview_panel_var.get())
+        if visible:
+            if not host.winfo_manager():
+                pack_kwargs: dict[str, Any] = {"fill": "x", "pady": (0, 8)}
+                if self._content_frame is not None:
+                    pack_kwargs["before"] = self._content_frame
+                host.pack(**pack_kwargs)
+            message = "Overview panel expanded."
+        else:
+            if host.winfo_manager():
+                host.pack_forget()
+            message = "Overview panel collapsed."
+        if log_change:
+            self.status_left_var.set(message)
+
+    def _set_overview_panel_visible(self, visible: bool, *, persist: bool = True, log_change: bool = True) -> None:
+        visible = bool(visible)
+        self.show_overview_panel_var.set(visible)
+        if persist:
+            self.settings["show_overview_panel"] = visible
+            self._save_settings()
+        self._apply_overview_panel_visibility(log_change=log_change)
+
+    def _on_overview_panel_setting_changed(self) -> None:
+        self._set_overview_panel_visible(bool(self.show_overview_panel_var.get()))
+
+    def _toggle_overview_panel(self) -> None:
+        self._set_overview_panel_visible(not bool(self.show_overview_panel_var.get()))
 
     def _drag_drop_availability_message(self) -> str:
         if self.drag_drop_enabled:
@@ -4572,6 +4629,7 @@ class SuiteApp:
         high_contrast_var = BooleanVar(value=bool(self.settings.get("high_contrast_mode", False)))
         fullscreen_var = BooleanVar(value=bool(self.settings.get("fullscreen", False)))
         borderless_var = BooleanVar(value=bool(self.settings.get("borderless_maximized", False)))
+        show_overview_var = BooleanVar(value=bool(self.settings.get("show_overview_panel", True)))
         reduce_motion_var = BooleanVar(value=bool(self.settings.get("reduce_motion", False)))
         ui_scale_var = StringVar(value=str(int(self.settings.get("ui_scale_percent", 100))))
         hover_tooltips_var = BooleanVar(value=bool(self.settings.get("use_hover_tooltips", False)))
@@ -4637,6 +4695,7 @@ class SuiteApp:
         ttk.Checkbutton(general_tab, text="High contrast mode", variable=high_contrast_var).pack(anchor="w")
         ttk.Checkbutton(general_tab, text="Start in fullscreen mode", variable=fullscreen_var).pack(anchor="w")
         ttk.Checkbutton(general_tab, text="Start in borderless maximized mode", variable=borderless_var).pack(anchor="w")
+        ttk.Checkbutton(general_tab, text="Show overview panel at startup", variable=show_overview_var).pack(anchor="w")
 
         accessibility_row = ttk.Frame(general_tab, style="App.TFrame")
         accessibility_row.pack(anchor="w", pady=(8, 0))
@@ -4702,7 +4761,7 @@ class SuiteApp:
         ttk.Entry(general_tab, textvariable=update_url_var).pack(fill="x", pady=(4, 0))
         ttk.Label(
             general_tab,
-            text='Example JSON: {"latest_version":"1.8.8","download_url":"https://example.com/app.exe","notes":"Release notes"}',
+            text='Example JSON: {"latest_version":"1.8.9","download_url":"https://example.com/app.exe","notes":"Release notes"}',
             foreground="#57687F",
             wraplength=760,
         ).pack(anchor="w", pady=(4, 0))
@@ -4798,6 +4857,7 @@ class SuiteApp:
             high_contrast_var.set(bool(defaults["high_contrast_mode"]))
             fullscreen_var.set(bool(defaults["fullscreen"]))
             borderless_var.set(bool(defaults["borderless_maximized"]))
+            show_overview_var.set(bool(defaults["show_overview_panel"]))
             reduce_motion_var.set(bool(defaults["reduce_motion"]))
             ui_scale_var.set(str(defaults["ui_scale_percent"]))
             hover_tooltips_var.set(bool(defaults["use_hover_tooltips"]))
@@ -4858,6 +4918,7 @@ class SuiteApp:
             self.settings["high_contrast_mode"] = bool(high_contrast_var.get())
             self.settings["fullscreen"] = bool(fullscreen_var.get())
             self.settings["borderless_maximized"] = bool(borderless_var.get())
+            self.settings["show_overview_panel"] = bool(show_overview_var.get())
             self.settings["reduce_motion"] = bool(reduce_motion_var.get())
             self.settings["ui_scale_percent"] = int(ui_scale_percent)
             self.settings["use_hover_tooltips"] = bool(hover_tooltips_var.get())
@@ -4883,7 +4944,9 @@ class SuiteApp:
             self.dark_mode_var.set(bool(self.settings["dark_mode"]))
             self.fullscreen_var.set(bool(self.settings["fullscreen"]))
             self.borderless_max_var.set(bool(self.settings["borderless_maximized"]))
+            self.show_overview_panel_var.set(bool(self.settings["show_overview_panel"]))
             self._configure_styles()
+            self._apply_overview_panel_visibility(log_change=False)
             self._apply_window_mode_state()
             self._set_backend_summary_status()
             self._refresh_hover_tooltip_preferences()
