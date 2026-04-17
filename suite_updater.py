@@ -21,7 +21,7 @@ from tkinter import BooleanVar, StringVar, filedialog, messagebox, ttk
 
 
 APP_TITLE = "Format Foundry Updater"
-CURRENT_VERSION = "1.8.5"
+CURRENT_VERSION = "1.8.6"
 APP_SLUG = "FormatFoundry"
 LEGACY_APP_SLUGS = ("UniversalConversionHubUCH", "UniversalConversionHubHCB", "UniversalFileUtilitySuite")
 SINGLE_INSTANCE_MUTEX_NAMES = (

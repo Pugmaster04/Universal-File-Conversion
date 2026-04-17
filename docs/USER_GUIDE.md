@@ -2,14 +2,14 @@
 
 This guide keeps the detailed install, build, workflow, backend, and archive notes that used to live in the repo front-page README.
 
-Version: `1.8.5`
+Version: `1.8.6`
 
 Changelog:
 - `CHANGELOG.md` (full project history and release notes)
 - `archive/ARCHIVE_INDEX.md` (archive map and external archive-root policy)
 
 Canonical release line:
-- `1.8.5` is the current Windows + Linux UX, packaging, and audit milestone.
+- `1.8.6` is the current Windows + Linux UX, packaging, and audit milestone.
 - Version numbers are now coordinated per release target instead of following the older staged-major/staged-minor note that used to live in this file.
 
 This is a modular desktop suite for practical file workflows:
@@ -178,7 +178,7 @@ Example:
 
 ```json
 {
-  "latest_version": "1.8.5",
+  "latest_version": "1.8.6",
   "download_url": "https://example.com/FormatFoundry.exe",
   "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "notes": "Release notes here"

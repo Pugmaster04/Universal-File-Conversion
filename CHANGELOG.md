@@ -7,6 +7,12 @@ This changelog includes:
 - Full `0.5` and `0.6.x` feature/fix/security/build history
 - Rapid revision trails captured in archive snapshots
 
+## [1.8.6] - 2026-04-16
+
+### Fixed
+- Linux packaged startup no longer risks attaching the first-run setup wizard to a hidden root window, which could leave the process running without a visible window on fresh installs.
+- Startup splash focus-loss minimization is now Windows-only, preventing Linux windowed launches from being hidden without a visible recovery path while the singleton lock remains held.
+
 ## [1.8.5] - 2026-04-16
 
 ### Added
@@ -14,7 +20,7 @@ This changelog includes:
 - New dedicated `Aria2` workspace category with a `Downloads` tab for direct aria2-managed HTTP(S), FTP, SFTP, BitTorrent, magnet, and Metalink transfers.
 - Torrent sources opened in `Torrents` now expose file-level selection with search, select-all/select-none, toggle controls, and a per-torrent progress view with individual file progress bars.
 - `Aria2 -> Downloads` and `Aria2 -> Torrents` now include inline pause/resume/stop controls plus state badges so active transfer state is visible without adding more modal workflow interruptions.
-- Linux packaging now emits stable ìlatestî aliases for the Debian package and AppImage so the repo front page can link directly to the current installer assets.
+- Linux packaging now emits stable ‚Äúlatest‚Äù aliases for the Debian package and AppImage so the repo front page can link directly to the current installer assets.
 - The app now exposes a clear uninstall flow through `File -> Uninstall...` and `Settings -> Uninstall App`, with platform-specific actions for Windows uninstallers, Debian package removal, AppImage cleanup guidance, and portable/source copies.
 - Windows GitHub Actions now build the app, updater, and installer on tagged releases so the Windows installer link on the repo front page is tied to an automated release path instead of manual drift.
 - Install-surface validation now checks that documented public installer filenames are present in the build outputs before release staging completes.
@@ -37,7 +43,7 @@ This changelog includes:
 - Updater release-asset selection now prefers Linux `.deb` assets on Debian-family systems, then `.AppImage` or `.tar.gz`, instead of selecting Windows `.exe` downloads.
 - GitHub Actions now includes a Linux build/release workflow that can upload Linux tarball assets to tagged releases.
 - GitHub Actions Linux builds now validate the generated Debian package layout, smoke-test the AppImage, and upload `.deb` and `.AppImage` assets alongside the tarball on tagged releases.
-- Linux singleton lock files now use user-scoped XDG runtime/cache paths instead of a shared `/tmp` fallback path, reducing false ìalready runningî conflicts and silent startup failures.
+- Linux singleton lock files now use user-scoped XDG runtime/cache paths instead of a shared `/tmp` fallback path, reducing false ‚Äúalready running‚Äù conflicts and silent startup failures.
 - Linux packaged windows now have PNG icon fallback wiring, and packaged update-manifest discovery now also checks bundled resources so self-contained Linux builds do not depend on the source tree.
 - Linux builds now show an explicit in-app fallback message when drag-and-drop is unavailable, directing users to the existing Add Files / Add Folder controls.
 - App and updater entrypoints now expose `--version` and `--smoke-test` CLI modes so Linux CI can validate the frozen binaries headlessly after build.
